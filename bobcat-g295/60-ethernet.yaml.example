@@ -1,0 +1,14 @@
+# Wired interface managed by netplan (rendered by NetworkManager).
+# Copy to /etc/netplan/60-ethernet.yaml, chmod 600, then netplan generate.
+# Switching a live link can change the DHCP lease: arm an auto-revert first
+# (see docs/development-notes.md). For a fixed address replace "dhcp4: true" with:
+#   addresses: [192.0.2.10/24]
+#   routes: [{to: default, via: 192.0.2.1}]
+#   nameservers: {addresses: [192.0.2.1]}
+network:
+  version: 2
+  renderer: NetworkManager
+  ethernets:
+    end0:
+      dhcp4: true
+      accept-ra: true

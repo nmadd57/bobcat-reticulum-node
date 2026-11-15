@@ -1,0 +1,12 @@
+# Experimental: extlinux-style entry for U-Boot's `pxe boot`.
+# Files are relative to the TFTP root. Take Image and rk3566-bobcat.dtb from the
+# community image's boot partition; initrd must be a net-install initramfs
+# (not provided, see ../README.md).
+default netinstall
+timeout 30
+
+label netinstall
+    kernel Image
+    fdt rk3566-bobcat.dtb
+    initrd netinstall-initrd.img
+    append console=ttyS2,1500000 earlycon=uart8250,mmio32,0xfe660000 rdinit=/init IMAGE_URL=http://192.0.2.1/bobcat-g295-reticulum.img.xz

@@ -1,0 +1,130 @@
+#!/bin/bash
+#
+# First-boot installer for the Bobcat Reticulum node image.
+#
+# Runs once (systemd unit bobcat-firstboot.service). It reads optional settings
+# from two files, then runs the bundled installer:
+#
+#   /etc/bobcat-lora/install.conf   baked into the image at build time
+#   /boot/bobcat-install.conf       created by you on the SD card's boot (FAT)
+#                                   partition after flashing; wins over the above
+#   /boot/bobcat-netplan.yaml       optional: a complete netplan config to install
+#                                   (used when WIFI_SSID is not set)
+#
+# Format: KEY=value, one per line, '#' starts a comment. Only the keys listed
+# below are honoured; the files are parsed, never executed.
+#
+#   WIFI_SSID  WIFI_PASS  WIFI_HIDDEN(0/1)  WIFI_OPEN(0/1)
+#   FREQUENCY  BANDWIDTH  SPREADINGFACTOR  CODINGRATE  TXPOWER
+#   TRANSPORT(yes/no)  AUTOINTERFACE(yes/no)  SCRUB_BOOT_CONF(yes/no)
+#
+# Log: /var/log/bobcat-firstboot.log   Marker: /var/lib/bobcat-lora/firstboot.done
+
+set -uo pipefail
+
+# Paths can be overridden through the environment (used by the tests).
+INSTALLER="${BOBCAT_INSTALLER:-/usr/local/share/bobcat-lora/bobcat-g295-install.sh}"
+STATE="${BOBCAT_STATE:-/var/lib/bobcat-lora}"
+DONE="$STATE/firstboot.done"
+LOG="${BOBCAT_LOG:-/var/log/bobcat-firstboot.log}"
+CONF_BAKED="${BOBCAT_CONF_BAKED:-/etc/bobcat-lora/install.conf}"
+CONF_BOOT="${BOBCAT_CONF_BOOT:-/boot/bobcat-install.conf}"
+NETPLAN_BOOT="${BOBCAT_NETPLAN_BOOT:-/boot/bobcat-netplan.yaml}"
+SKIP_SYSTEM="${BOBCAT_TEST_SKIP_SYSTEM:-0}"   # tests: no apt-mark/systemctl/time wait
+
+mkdir -p "$STATE"
+exec > >(tee -a "$LOG") 2>&1
+echo "== $(date -Is) bobcat-firstboot starting"
+
+[[ -e "$DONE" ]] && { echo "already done"; exit 0; }
+[[ -x "$INSTALLER" ]] || { echo "installer missing: $INSTALLER"; exit 1; }
+
+# Never let an automatic upgrade replace the kernel or bootloader: the image
+# documentation warns that doing so breaks boot.
+if [[ "$SKIP_SYSTEM" != "1" ]]; then
+    for pkg in linux-image-current-rockchip64 linux-dtb-current-rockchip64 \
+               linux-u-boot-bobcat-29x-current; do
+        dpkg -s "$pkg" >/dev/null 2>&1 && apt-mark hold "$pkg" >/dev/null
+    done
+fi
+
+declare -A C=()
+load_conf() {
+    local file="$1" line key val
+    [[ -r "$file" ]] || return 0
+    echo "reading $file"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+        if [[ "$line" =~ ^[[:space:]]*([A-Z0-9_]+)[[:space:]]*=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            val="${BASH_REMATCH[2]}"
+            val="${val#"${val%%[![:space:]]*}"}"
+            if [[ "$val" =~ ^\"(.*)\"$ ]]; then val="${BASH_REMATCH[1]}"
+            elif [[ "$val" =~ ^\'(.*)\'$ ]]; then val="${BASH_REMATCH[1]}"; fi
+            case "$key" in
+                WIFI_SSID|WIFI_PASS|WIFI_HIDDEN|WIFI_OPEN|FREQUENCY|BANDWIDTH|\
+SPREADINGFACTOR|CODINGRATE|TXPOWER|TRANSPORT|AUTOINTERFACE|SCRUB_BOOT_CONF)
+                    C[$key]="$val" ;;
+                *)  echo "ignoring unknown key $key in $file" ;;
+            esac
+        fi
+    done < "$file"
+}
+load_conf "$CONF_BAKED"
+load_conf "$CONF_BOOT"
+
+# The board has no battery-backed clock. A stale clock makes TLS (apt, pip)
+# fail with "certificate is not yet valid", so wait for time sync first.
+echo "waiting for time sync (up to 3 min)"
+for _ in $(seq 1 90); do
+    [[ "$SKIP_SYSTEM" == "1" ]] && break
+    [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "yes" ]] && break
+    sleep 2
+done
+echo "clock: $(date -Is) synchronized=$(timedatectl show -p NTPSynchronized --value 2>/dev/null)"
+
+args=()
+PWFILE=""
+cleanup() { [[ -n "$PWFILE" ]] && rm -f "$PWFILE"; }
+trap cleanup EXIT
+
+if [[ -n "${C[WIFI_SSID]:-}" ]]; then
+    args+=(--wifi-ssid "${C[WIFI_SSID]}")
+    if [[ "${C[WIFI_OPEN]:-0}" == "1" ]]; then
+        args+=(--wifi-open)
+    else
+        PWFILE="$(mktemp)"
+        chmod 600 "$PWFILE"
+        printf '%s\n' "${C[WIFI_PASS]:-}" > "$PWFILE"
+        args+=(--wifi-pass-file "$PWFILE")
+    fi
+    [[ "${C[WIFI_HIDDEN]:-0}" == "1" ]] && args+=(--wifi-hidden)
+elif [[ -r "$NETPLAN_BOOT" ]]; then
+    args+=(--netplan-file "$NETPLAN_BOOT")
+fi
+[[ -n "${C[FREQUENCY]:-}"        ]] && args+=(--frequency "${C[FREQUENCY]}")
+[[ -n "${C[BANDWIDTH]:-}"        ]] && args+=(--bandwidth "${C[BANDWIDTH]}")
+[[ -n "${C[SPREADINGFACTOR]:-}"  ]] && args+=(--spreadingfactor "${C[SPREADINGFACTOR]}")
+[[ -n "${C[CODINGRATE]:-}"       ]] && args+=(--codingrate "${C[CODINGRATE]}")
+[[ -n "${C[TXPOWER]:-}"          ]] && args+=(--txpower "${C[TXPOWER]}")
+[[ "${C[TRANSPORT]:-yes}" == "no" ]] && args+=(--no-transport)
+[[ "${C[AUTOINTERFACE]:-yes}" == "no" ]] && args+=(--no-autointerface)
+
+echo "running installer (options: $(printf '%q ' "${args[@]}" | sed -E 's/--wifi-pass-file [^ ]+/--wifi-pass-file <file>/'))"
+if ! "$INSTALLER" "${args[@]}"; then
+    echo "== installer failed; systemd will retry"
+    exit 1
+fi
+
+touch "$DONE"
+echo "== $(date -Is) first-boot install complete"
+
+# Do not leave the Wi-Fi passphrase sitting in plain text on the FAT partition.
+if [[ "${C[SCRUB_BOOT_CONF]:-yes}" != "no" && -w "$CONF_BOOT" ]] &&
+   grep -qE '^[[:space:]]*WIFI_PASS[[:space:]]*=[^[:space:]]' "$CONF_BOOT"; then
+    sed -i -E 's/^([[:space:]]*WIFI_PASS[[:space:]]*=).*/\1/' "$CONF_BOOT" &&
+        echo "cleared WIFI_PASS in $CONF_BOOT"
+fi
+[[ "$SKIP_SYSTEM" == "1" ]] || systemctl disable bobcat-firstboot.service >/dev/null 2>&1 || true
+exit 0

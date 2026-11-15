@@ -1,0 +1,18 @@
+[Unit]
+Description=Bobcat Reticulum node: first-boot install
+After=network-online.target NetworkManager.service chrony.service
+Wants=network-online.target
+ConditionPathExists=!/var/lib/bobcat-lora/firstboot.done
+StartLimitIntervalSec=7200
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bobcat-firstboot
+# No internet yet, a slow DHCP lease, or a failed download: try again.
+Restart=on-failure
+RestartSec=120
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

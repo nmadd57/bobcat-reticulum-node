@@ -1,0 +1,10 @@
+dist/
+.cache/
+build/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+*.img
+*.img.xz
+*.part

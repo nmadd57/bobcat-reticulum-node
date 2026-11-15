@@ -1,0 +1,19 @@
+# Wi-Fi for a Bobcat G290/G295 (onboard BCM43430, 2.4 GHz) via netplan.
+#
+# Copy to /etc/netplan/50-wifi.yaml on the Bobcat, replace the two
+# placeholders, then:
+#   chmod 600 /etc/netplan/50-wifi.yaml
+#   netplan try        # rolls back on its own if you lose the connection
+#
+# Ethernet (end0) keeps working through NetworkManager as before.
+
+network:
+  version: 2
+  renderer: NetworkManager
+  wifis:
+    wlan0:
+      dhcp4: true
+      optional: true        # do not delay boot waiting for Wi-Fi
+      access-points:
+        "YOUR_SSID":
+          password: "YOUR_PASSWORD"

@@ -1,0 +1,12 @@
+#cloud-config
+# SKETCH ONLY. Requires cloud-init in the image, which it does not have today.
+# Would run the installer from a release asset on first boot.
+write_files:
+  - path: /etc/bobcat-lora/install.conf
+    permissions: "0600"
+    content: |
+      WIFI_SSID=YourNetwork
+      WIFI_PASS=your passphrase
+      FREQUENCY=915000000
+runcmd:
+  - [bash, -c, "systemctl start bobcat-firstboot.service"]
