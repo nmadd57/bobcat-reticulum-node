@@ -19,10 +19,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck
           shellcheck -S warning \
-            installer/install-template.sh installer/build-installer.sh \
-            image/build-image.sh image/firstboot/bobcat-firstboot \
-            image/firstboot/test-firstboot.sh \
-            bobcat-g295/reset_bobcat_g295.sh
+            installer/install-template.sh installer/build-installer.sh installer/test-installer.sh \
+            image/lib.sh image/build-image.sh image/build-flasher.sh image/verify-flasher.sh \
+            image/firstboot/bobcat-firstboot image/firstboot/test-firstboot.sh \
+            image/flasher/init.sh image/flasher/test-init.sh \
+            tools/write-sd.sh bobcat-g295/reset_bobcat_g295.sh
 
   test:
     name: Tests
@@ -35,14 +36,20 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc make patch
+          sudo apt-get install -y --no-install-recommends gcc make patch dash
           python -m pip install --upgrade pip
-          python -m pip install "rns>=1.5.7,<2" pytest
+          python -m pip install "rns>=1.5.7,<2" pytest pyyaml
       - name: Python tests (interface, framing, worker, HAL ABI)
         working-directory: sx1302_rns
         run: python -m pytest -q
+      - name: Partition tool tests
+        run: python -m pytest -q image/tools
+      - name: Installer settings tests (dry run, config parsing, saved settings)
+        run: installer/test-installer.sh
       - name: First-boot script tests
         run: image/firstboot/test-firstboot.sh
+      - name: Flasher init script tests (bash and dash)
+        run: image/flasher/test-init.sh
 
   installer:
     name: Build installer bundle
@@ -59,6 +66,12 @@ jobs:
           bash dist/bobcat-g295-install.sh --extract-only "$d"
           test -f "$d/sx1302_rns/vendor/sx1302_hal/libloragw/Makefile"
           test -x "$d/bobcat-g295/reset_bobcat_g295.sh"
+      - name: The built bundle validates a settings file (dry run)
+        run: |
+          python3 -m pip install pyyaml
+          printf 'WIFI_SSID=Test\nWIFI_PASS=password123\nFREQUENCY=915000000\n' > /tmp/t.conf
+          bash dist/bobcat-g295-install.sh --dry-run --config /tmp/t.conf | tee /tmp/plan.txt
+          grep -q "wifi:          Test" /tmp/plan.txt
       - name: Build the HAL from the bundle
         run: |
           d="$(mktemp -d)"

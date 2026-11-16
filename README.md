@@ -7,9 +7,11 @@ channel (default 915 MHz, 125 kHz, SF8, CR 4/5).
 It provides:
 
 - a **one-file installer** for a Bobcat already running the community Armbian image;
-- a **self-installing image** build that adds the installer to that image so a
-  freshly flashed unit installs itself on first boot;
-- optional Wi-Fi / [netplan](https://netplan.io/) setup in both;
+- a **self-installing eMMC flasher** (the community flasher, extended): flash a unit
+  from an SD card, with your settings file copied across, and it installs itself
+  on first boot;
+- one settings file for Wi-Fi, Ethernet, OS and radio/Reticulum options, used by
+  the installer and the image (plus optional [netplan](https://netplan.io/));
 - notes on network boot and MAAS (design only; see [Status](#status)).
 
 > **Hardware at your own risk.** Never transmit without an antenna connected.
@@ -29,6 +31,16 @@ It checks the board, installs a few packages (never `apt upgrade`; the kernel
 and bootloader packages are held), builds the radio HAL, creates a Python
 venv with Reticulum, writes `/etc/reticulum/config`, and installs and starts
 the `rnsd-sx1302` service. Re-running is safe.
+
+Everything can also come from one settings file (`--config FILE`, see
+[`docs/config-reference.md`](docs/config-reference.md)); options override the
+file. `--dry-run` validates it and shows the plan and generated configs without
+changing anything:
+
+```
+./bobcat-g295-install.sh --dry-run --config my.conf
+./bobcat-g295-install.sh --config my.conf
+```
 
 Common options (all in `--help`):
 
@@ -60,21 +72,37 @@ journalctl -u rnsd-sx1302 -f
 
 ## Quick start: self-installing image
 
-See [`image/README.md`](image/README.md). In short: run the **Build image**
-workflow, write the result as you would the community image, optionally add a
-`bobcat-install.conf` (Wi-Fi, radio settings) to its boot partition, and power
-on with Ethernet connected.
+The easiest way to set up a unit, including one with no network cable. Your
+Wi-Fi/network/system/radio settings go in a file that travels **next to** the
+image, so nothing secret is baked into it.
+
+1. Get `bobcat-g295-flasher.img.xz` from a release (or run **Actions → Build images**).
+2. Copy [`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example)
+   to `bobcat-install.conf` and fill in what you need ([reference](docs/config-reference.md)).
+3. Write the SD card and add your file, on Linux in one step:
+   ```
+   tools/write-sd.sh --config bobcat-install.conf bobcat-g295-flasher.img.xz /dev/sdX
+   ```
+   (on Windows/macOS write the image with any tool and copy the file onto the card's
+   **BOBCFG** drive).
+4. Power the Bobcat on with the card in. It flashes its internal storage, copying
+   your settings across; when the LEDs flash quickly, power off and remove the card.
+5. Power on again. First boot installs the node by itself and joins your Wi-Fi.
+
+**This erases the Bobcat's internal storage.** Details, the standalone SD
+variant and how it works: [`image/README.md`](image/README.md).
 
 ## Repository layout
 
 | Path | What |
 |---|---|
 | `installer/` | the self-extracting installer (template + builder) |
-| `image/` | first-boot service and the image build script |
+| `image/` | first-boot service, flasher and image builders, partition tool |
+| `tools/` | `write-sd.sh`: write the SD card and your settings in one step |
 | `bobcat-g295/` | board profile, reset script, announce test, netplan examples |
 | `sx1302_rns/` | the Reticulum SX1302 interface (a modified copy of an MIT project) plus the vendored Semtech HAL |
 | `netboot/`, `maas/` | PXE / MAAS design notes (experimental) |
-| `docs/hardware-notes.md` | GPIO/SPI map, bootloader findings, what is verified |
+| `docs/` | `config-reference.md` (all settings), `hardware-notes.md`, `development-notes.md` |
 | `.github/workflows/` | CI and the image build |
 
 ## How it works
@@ -108,8 +136,8 @@ workflows run.
 | | |
 |---|---|
 | Verified on a real unit | TX/RX with another node through Reticulum; service starts at boot; installer re-runs; radio-setting flags; Wi-Fi (hidden SSID) and Ethernet through netplan |
-| Tested in CI / locally only | first-boot script logic; image patching and filesystem check; installer argument validation; the Wi-Fi shortcut's file generation and the auto-revert mechanism |
-| **Not tested** | flashing the built image to a unit and its first boot; the Wi-Fi shortcut joining a brand-new network; PXE / network install and MAAS (design only, with a blocker: the bootloader has no EFI) |
+| Tested in CI / locally only | the settings parser and every validation (dry run); first-boot and flasher script logic (bash and dash); image and flasher patching, partition tables, FAT and mounts; the Wi-Fi shortcut's file generation and the auto-revert mechanism |
+| **Not tested** | flashing a unit with the built flasher and its first boot (including the settings copy inside the flasher's BusyBox environment); the Wi-Fi shortcut joining a brand-new network; PXE / network install and MAAS (design only, with a blocker: the bootloader has no EFI) |
 
 ## Credits and licenses
 

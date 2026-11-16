@@ -53,10 +53,30 @@ Read from the packaged `u-boot.itb` and its defconfig:
   hand on the serial console).
 - **`EFI_LOADER` is not set**: no `bootefi`, so UEFI/GRUB-EFI images cannot run.
 
+## The community eMMC flasher
+Downloaded and inspected (not run). It is an SD card image: a GPT disk with a
+`uboot` partition (4 MiB at 8 MiB), `misc` (4 MiB), and a 3.1 GiB ext4 `rootfs`
+(partition 6) that holds `/init.sh`, a static BusyBox and the full OS disk image.
+`/init.sh` runs as PID 1, mounts proc/sys/dev, `dd`s the OS image to
+`/dev/mmcblk0` (the eMMC), then blinks the LEDs (GPIOs 128-130) forever.
+- No kernel and no modules are in its filesystem. It evidently boots the kernel
+  already on the unit, so the kernel's built-in features are all it has.
+- BusyBox applets present include `mount`, `cat`, `cmp`, `sed`, `grep`, `mkdir`,
+  `losetup`, `partprobe`, `blockdev`, `sha256sum`, `tar`; there is **no `cp`**.
+- The Bobcat kernel has FAT/VFAT built in, but its default `iso8859-1` character
+  table is a module, so mounting FAT there needs `-o iocharset=cp437` (built in).
+- The flasher's root filesystem was shipped with an **unreplayed ext4 journal**
+  and the `orphan_present` flag.
+- The OS image it carries is not byte-identical to the standalone community
+  image: it differs in a handful of 1 MiB regions (boot partition scripts and a
+  few root-filesystem blocks), so the flasher variant must patch the flasher's
+  own copy.
+
 ## Verified / not verified
 | Verified on hardware | Not verified |
 |---|---|
 | TX and RX with another node, through Reticulum | Flashing the built image to a unit and its first-boot run |
 | `rnsd-sx1302` starts at boot and owns the radio | Wi-Fi shortcut against a new SSID (generation, validation and apply were tested separately) |
 | Installer re-runs (idempotent), radio-setting flags | Auto-revert triggering from a real connectivity loss |
+| netplan Wi-Fi (hidden SSID) and Ethernet | Running the new flasher on a unit: the settings copy in its BusyBox environment, then the first boot |
 | netplan Wi-Fi (hidden SSID) and Ethernet | PXE / network install, MAAS (see `netboot/` and `maas/`) |

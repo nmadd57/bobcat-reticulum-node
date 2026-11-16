@@ -1,21 +1,30 @@
-name: Build image
+name: Build images
 
-# Builds the self-installing Bobcat image from the community base image.
-#   - run manually (Actions tab -> Build image -> Run workflow), or
-#   - push a version tag (v1.0.0) to also attach the image to a release.
+# Builds the self-installing images from the community base images.
+#   flasher: SD card image that flashes the eMMC and copies your settings file
+#            across (recommended for G290/G295)
+#   sd:      standalone image that boots from the SD card
 #
-# The base image is a third-party build; keep this repository private unless
-# its license allows redistribution.
+# Run manually (Actions tab -> Build images -> Run workflow), or push a version
+# tag (v1.0.0) to build both and attach them to a release.
+#
+# The base images are third-party builds; keep this repository private unless
+# their license allows redistribution.
 
 on:
   workflow_dispatch:
     inputs:
+      variant:
+        description: "Which image to build"
+        type: choice
+        options: [flasher, sd, both]
+        default: flasher
       upload_artifact:
-        description: "Upload the image as a workflow artifact (counts against Actions storage)"
+        description: "Upload the images as workflow artifacts (they count against Actions storage)"
         type: boolean
         default: true
       xz_level:
-        description: "xz compression preset for the output (1 fast .. 9 small)"
+        description: "xz compression preset (1 fast .. 9 small)"
         default: "6"
   push:
     tags: ["v*"]
@@ -23,8 +32,69 @@ on:
 permissions:
   contents: write   # attach files to a release on tags
 
+env:
+  XZ_LEVEL: ${{ github.event.inputs.xz_level || '6' }}
+
 jobs:
-  image:
+  flasher:
+    name: eMMC flasher image
+    if: github.event_name == 'push' || github.event.inputs.variant != 'sd'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            e2fsprogs xz-utils curl python3 python3-yaml dosfstools mtools gdisk
+
+      - name: Cache the base flasher
+        uses: actions/cache@v4
+        with:
+          path: .cache/Bobcat29X_EMMC_Flasher.img.xz
+          key: base-flasher-f797aaff9406
+
+      - name: Build
+        env:
+          BUILD_REF: ${{ github.sha }}
+        run: image/build-flasher.sh
+
+      - name: Verify (partition tables, FAT, mounts, settings writer)
+        run: sudo image/verify-flasher.sh dist/bobcat-g295-flasher.img.xz
+
+      - name: Summary
+        run: |
+          {
+            echo "### eMMC flasher image"
+            echo
+            echo '```'
+            cat dist/bobcat-g295-flasher.img.xz.sha256
+            ls -lh dist/bobcat-g295-flasher.img.xz | awk '{print $5, $9}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        if: github.event_name == 'push' || github.event.inputs.upload_artifact == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bobcat-g295-flasher
+          path: |
+            dist/bobcat-g295-flasher.img.xz
+            dist/bobcat-g295-flasher.img.xz.sha256
+          compression-level: 0
+          retention-days: ${{ github.event_name == 'push' && 1 || 14 }}
+          if-no-files-found: error
+
+  sd-image:
+    name: Standalone SD image
+    if: github.event_name == 'push' || github.event.inputs.variant != 'flasher'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -44,13 +114,12 @@ jobs:
       - name: Build
         env:
           BUILD_REF: ${{ github.sha }}
-          XZ_LEVEL: ${{ github.event.inputs.xz_level || '6' }}
         run: image/build-image.sh
 
       - name: Summary
         run: |
           {
-            echo "### Image"
+            echo "### Standalone SD image"
             echo
             echo '```'
             cat dist/bobcat-g295-reticulum.img.xz.sha256
@@ -62,23 +131,35 @@ jobs:
         if: github.event_name == 'push' || github.event.inputs.upload_artifact == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: bobcat-g295-reticulum-image
+          name: bobcat-g295-sd-image
           path: |
             dist/bobcat-g295-reticulum.img.xz
             dist/bobcat-g295-reticulum.img.xz.sha256
             dist/bobcat-g295-install.sh
           compression-level: 0
-          retention-days: 14
+          retention-days: ${{ github.event_name == 'push' && 1 || 14 }}
           if-no-files-found: error
 
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [flasher, sd-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -lh assets
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --notes "Self-installing Bobcat G290/G295 Reticulum node image and the stand-alone installer. Verify with the .sha256 file." \
-            dist/bobcat-g295-reticulum.img.xz \
-            dist/bobcat-g295-reticulum.img.xz.sha256 \
-            dist/bobcat-g295-install.sh
+            --notes "Bobcat G290/G295 Reticulum node. Use the flasher image (bobcat-g295-flasher.img.xz) for the eMMC, with your settings on its BOBCFG partition; see the README. Also: the standalone SD image, the stand-alone installer, and an example settings file. Verify downloads with the .sha256 files." \
+            assets/bobcat-g295-flasher.img.xz assets/bobcat-g295-flasher.img.xz.sha256 \
+            assets/bobcat-g295-reticulum.img.xz assets/bobcat-g295-reticulum.img.xz.sha256 \
+            assets/bobcat-g295-install.sh \
+            image/firstboot/bobcat-install.conf.example

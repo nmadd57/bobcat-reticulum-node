@@ -23,9 +23,12 @@ reading this bootloader's build, not from trying MAAS against a Bobcat.
 | **cloud-init in the image** | Add `cloud-init` to the image and read a NoCloud seed from the boot partition. The user-data would then be standard. Not done. |
 
 ## The "user-data" that does exist today
-The self-installing image reads `bobcat-install.conf` (and optionally
-`bobcat-netplan.yaml`) from the boot partition. It is the same idea as a
-cloud-init seed, with a much smaller vocabulary. See `../image/README.md`.
+The self-installing images read `bobcat-install.conf` (plus optional
+`bobcat-netplan.yaml`, `bobcat-authorized_keys`, `bobcat-reticulum.conf`) that you
+place next to the image when flashing. It is the same idea as a cloud-init seed,
+with a smaller vocabulary: Wi-Fi, Ethernet, hostname, timezone, SSH keys, root
+password hash, radio and Reticulum settings. See `../image/README.md` and
+`../docs/config-reference.md`.
 
 [`user-data.example.yaml`](user-data.example.yaml) shows what the equivalent
 cloud-init user-data would look like if cloud-init were added to the image.

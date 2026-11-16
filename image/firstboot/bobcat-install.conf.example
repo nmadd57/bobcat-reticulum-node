@@ -1,26 +1,70 @@
-# Copy this file to the SD card's boot partition (the small FAT partition,
-# labelled "armbi_boot") as: bobcat-install.conf
-# before first boot. All settings are optional.
+# bobcat-install.conf: settings for the Bobcat Reticulum node install.
+#
+# Put this file (renamed to exactly "bobcat-install.conf") where the flasher or
+# the first boot will find it:
+#   * eMMC flasher SD card: on the BOBCFG partition, before powering on
+#   * standalone SD image:  on the small FAT boot partition
+# Every setting is optional. Lines start with KEY=value; '#' starts a comment.
+# Values are taken literally (no escaping); surrounding quotes are removed.
+# Full reference: docs/config-reference.md
 
-# --- Wi-Fi (2.4 GHz only on this hardware) --------------------------------
+# ===== Wi-Fi (this hardware: 2.4 GHz only) ==================================
+# With Wi-Fi configured, no network cable is needed for the install.
 #WIFI_SSID=MyNetwork
 #WIFI_PASS=my passphrase here
-#WIFI_HIDDEN=0
-#WIFI_OPEN=0
+#WIFI_HIDDEN=no
+#WIFI_OPEN=no
 
-# --- Radio (must match the other nodes on your network) -------------------
+# ===== Ethernet ==============================================================
+# keep (default): leave it as it is (DHCP). dhcp: manage it with netplan.
+# static: fixed address.
+#ETH_MODE=keep
+#ETH_ADDRESS=192.168.1.50/24
+#ETH_GATEWAY=192.168.1.1
+#ETH_DNS=192.168.1.1,9.9.9.9
+
+# ===== Operating system ======================================================
+#HOSTNAME=bobcat-01
+#TIMEZONE=America/New_York
+# One public key per line; or put them in a file named bobcat-authorized_keys
+# next to this one. Keys with options (command=...) are rejected.
+#SSH_AUTHORIZED_KEY=ssh-ed25519 AAAA... you@laptop
+# A crypt(3) hash, e.g. from: mkpasswd -m sha-512
+#ROOT_PASSWORD_HASH=$6$salt$hash
+# Skip Armbian's interactive "create a user" first-login prompt.
+#SKIP_FIRSTLOGIN_WIZARD=yes
+
+# ===== Radio (must match the other nodes on your network) ===================
 #FREQUENCY=915000000
 #BANDWIDTH=125000
 #SPREADINGFACTOR=8
 #CODINGRATE=5
 #TXPOWER=14
+#PREAMBLE=18
 
-# --- Reticulum behaviour --------------------------------------------------
+# ===== Reticulum =============================================================
+# Repeat other nodes' traffic (adds airtime), and enable LAN discovery.
 #TRANSPORT=yes
 #AUTOINTERFACE=yes
+# RNode-compatible framing. Turn off only to talk to another raw-LoRa node.
+#RNODE_FRAMING=yes
+# full | gateway | access_point | roaming | boundary | pointtopoint
+#INTERFACE_MODE=full
+# Interface access control: only nodes with the same name/passphrase talk to you.
+#IFAC_NETNAME=my-network
+#IFAC_PASSPHRASE=a shared secret
+# Also bridge to the internet/LAN over TCP. A server opens a port.
+#TCP_SERVER_PORT=4242
+#TCP_CLIENT=hub.example.org:4242
+#TCP_CLIENT=192.168.1.20:4242
 
-# Clear WIFI_PASS from this file after a successful install (default yes).
+# ===== After the install =====================================================
+# Clear WIFI_PASS and IFAC_PASSPHRASE from the file on the FAT partition once
+# the install succeeded (default yes). A root-only copy is kept on the system.
 #SCRUB_BOOT_CONF=yes
 
-# For a complete netplan config instead of the Wi-Fi shortcut, put it next to
-# this file as bobcat-netplan.yaml (ignored when WIFI_SSID is set).
+# Other files that can sit next to this one (same folder, exact names):
+#   bobcat-netplan.yaml     a complete netplan config (cannot be combined with
+#                           the Wi-Fi/Ethernet settings above)
+#   bobcat-authorized_keys  SSH public keys for root
+#   bobcat-reticulum.conf   a complete Reticulum config (replaces the generated one)

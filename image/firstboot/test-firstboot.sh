@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Tests for bobcat-firstboot: config parsing, option building, secrets handling.
-# Runs the real script against a stub installer; touches nothing outside a
-# temporary directory.
+# Tests for bobcat-firstboot: seeding the settings into the installed system,
+# merging, side files, secret handling. Runs the real script against a stub
+# installer; touches nothing outside a temporary directory.
 
 set -uo pipefail
 
@@ -12,88 +12,131 @@ T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 
 pass=0 failed=0
-ok()   { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }
-bad()  { failed=$((failed + 1)); printf 'FAIL %s\n' "$1"; [[ -n "${2:-}" ]] && printf '     %s\n' "$2"; }
+ok()    { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }
+bad()   { failed=$((failed + 1)); printf 'FAIL %s\n' "$1"; [[ -n "${2:-}" ]] && printf '     %s\n' "$2"; }
 check() { if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1" "expected [$3] got [$2]"; fi; }
 has()   { if grep -qF -- "$2" <<<"$3"; then ok "$1"; else bad "$1" "missing [$2]"; fi; }
 hasnt() { if grep -qF -- "$2" <<<"$3"; then bad "$1" "unexpected [$2]"; else ok "$1"; fi; }
 
-# The stub records each argument on its own line and the pass file's mode/length.
+# The stub records its arguments and a copy of the config file it was given.
 cat > "$T/stub" <<'STUB'
 #!/bin/bash
-out="$BOBCAT_TEST_OUT"
-: > "$out"
-for a in "$@"; do printf 'ARG %s\n' "$a" >> "$out"; done
-while [[ $# -gt 0 ]]; do
-    if [[ "$1" == --wifi-pass-file ]]; then
-        printf 'PASSFILE mode=%s content=%s\n' "$(stat -c %a "$2")" "$(cat "$2")" >> "$out"
-    fi
-    shift
-done
+: > "$BOBCAT_TEST_ARGS"
+for a in "$@"; do printf '%s\n' "$a" >> "$BOBCAT_TEST_ARGS"; done
+[[ "$1" == --config && -r "$2" ]] && cat "$2" > "$BOBCAT_TEST_CONF_COPY"
 exit "${STUB_RC:-0}"
 STUB
 chmod +x "$T/stub"
 
-run() {   # run [ENV=val ...]; returns installer args in $T/out, script output in $OUT
-    rm -rf "$T/state" "$T/out"
+reset_dirs() { rm -rf "${T:?}/state" "${T:?}/seed" "${T:?}/boot" "${T:?}/args" "${T:?}/conf"; mkdir -p "$T/boot"; }
+
+run() {   # run [ENV=val ...]
     OUT="$(env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" \
-        BOBCAT_CONF_BAKED="$T/baked.conf" BOBCAT_CONF_BOOT="$T/boot.conf" \
-        BOBCAT_NETPLAN_BOOT="$T/np.yaml" BOBCAT_TEST_SKIP_SYSTEM=1 \
-        BOBCAT_TEST_OUT="$T/out" "$@" "$SCRIPT" 2>&1)"
+        BOBCAT_SEED="$T/seed" BOBCAT_BOOT_DIR="$T/boot" BOBCAT_TEST_SKIP_SYSTEM=1 \
+        BOBCAT_TEST_ARGS="$T/args" BOBCAT_TEST_CONF_COPY="$T/conf" "$@" "$SCRIPT" 2>&1)"
     RC=$?
-    ARGS="$(cat "$T/out" 2>/dev/null || true)"
+    ARGS="$(cat "$T/args" 2>/dev/null || true)"
+    CONF="$(cat "$T/conf" 2>/dev/null || true)"
 }
 
-: > "$T/baked.conf"; : > "$T/boot.conf"; rm -f "$T/np.yaml"
-
-# 1. no configuration at all
+# 1. nothing on the boot partition
+reset_dirs
 run
-check "no config: exit 0" "$RC" 0
-check "no config: installer gets no arguments" "$ARGS" ""
-[[ -e "$T/state/firstboot.done" ]] && ok "no config: done marker written" || bad "no config: done marker written"
+check "no settings: exit 0" "$RC" 0
+check "no settings: installer is given --config <effective file>" "$ARGS" "--config
+$T/seed/effective.conf"
+has   "no settings: says it will use defaults" "installing with defaults" "$OUT"
+[[ -e "$T/state/firstboot.done" ]] && ok "no settings: done marker written" || bad "no settings: done marker written"
+check "no settings: effective file is root-only" "$(stat -c %a "$T/seed/effective.conf")" 600
+check "no settings: seed directory is root-only" "$(stat -c %a "$T/seed")" 700
 
-# 2. Wi-Fi from the boot partition: quoting, CRLF, unknown keys, injection
-printf 'WIFI_SSID="My Net"\r\nWIFI_PASS=pa ss"w$(touch %s/PWNED)rd\r\nWIFI_HIDDEN=1\nFREQUENCY=915000000\nTXPOWER=14\nTRANSPORT=no\nEVIL=1\n# comment\nlowercase=bad\n' "$T" > "$T/boot.conf"
+# 2. settings with CRLF line endings, quotes, and a hostile passphrase
+reset_dirs
+printf 'WIFI_SSID="My Net"\r\nWIFI_PASS=pa ss"w$(touch %s/PWNED)rd\r\nFREQUENCY=915000000\r\n' "$T" > "$T/boot/bobcat-install.conf"
 run
-check "wifi: exit 0" "$RC" 0
-has   "wifi: ssid argument" "ARG My Net" "$ARGS"
-has   "wifi: hidden flag" "ARG --wifi-hidden" "$ARGS"
-has   "wifi: frequency" "ARG 915000000" "$ARGS"
-has   "wifi: no-transport" "ARG --no-transport" "$ARGS"
-has   "wifi: passphrase read from a file, mode 600" "PASSFILE mode=600" "$ARGS"
-has   "wifi: passphrase survives quotes and \$()" 'content=pa ss"w$(touch '"$T"'/PWNED)rd' "$ARGS"
-hasnt "wifi: passphrase never on the command line" "ARG pa ss" "$ARGS"
-[[ ! -e "$T/PWNED" ]] && ok "wifi: no command injection" || bad "wifi: no command injection"
-has   "wifi: unknown key reported" "ignoring unknown key EVIL" "$OUT"
-hasnt "wifi: lowercase keys ignored silently" "ignoring unknown key lowercase" "$OUT"
-check "wifi: passphrase scrubbed from boot conf" "$(tr -d '\r' < "$T/boot.conf" | grep -c 'WIFI_PASS=$')" 1
+check "settings: exit 0" "$RC" 0
+has   "settings: SSID reaches the installer's config" 'WIFI_SSID="My Net"' "$CONF"
+has   "settings: passphrase line is carried verbatim" 'WIFI_PASS=pa ss"w$(touch' "$CONF"
+hasnt "settings: CRLF is stripped" $'\r' "$CONF"
+[[ ! -e "$T/PWNED" ]] && ok "settings: nothing is executed" || bad "settings: nothing is executed"
+hasnt "settings: secrets never appear on the command line" "pa ss" "$ARGS"
+check "settings: passphrase blanked on the FAT partition" "$(grep -c '^WIFI_PASS=$' "$T/boot/bobcat-install.conf")" 1
+check "settings: other FAT lines untouched" "$(tr -d '\r' < "$T/boot/bobcat-install.conf" | grep -c '^FREQUENCY=915000000$')" 1
+has   "settings: root-only copy keeps the passphrase for re-runs" 'WIFI_PASS=pa ss"w$(touch' "$(cat "$T/seed/effective.conf")"
 
-# 3. baked config + boot config override; open network; netplan file ignored
-printf 'SPREADINGFACTOR=9\nWIFI_SSID=baked\nWIFI_PASS=bakedpass123\n' > "$T/baked.conf"
-printf 'WIFI_SSID=fromboot\nWIFI_OPEN=1\n' > "$T/boot.conf"
-echo 'network: {}' > "$T/np.yaml"
+# 3. IFAC passphrase is scrubbed too; SCRUB_BOOT_CONF=no keeps everything
+reset_dirs
+printf 'IFAC_NETNAME=net\nIFAC_PASSPHRASE=secret-one\nWIFI_PASS=secret-two\n' > "$T/boot/bobcat-install.conf"
 run
-has   "override: boot conf wins" "ARG fromboot" "$ARGS"
-has   "override: open network flag" "ARG --wifi-open" "$ARGS"
-has   "override: baked-only setting kept" "ARG 9" "$ARGS"
-hasnt "override: no pass file for an open network" "PASSFILE" "$ARGS"
-hasnt "override: netplan file ignored when WIFI_SSID is set" "--netplan-file" "$ARGS"
-
-# 4. complete netplan file only
-: > "$T/baked.conf"; : > "$T/boot.conf"
+check "scrub: IFAC passphrase blanked" "$(grep -c '^IFAC_PASSPHRASE=$' "$T/boot/bobcat-install.conf")" 1
+check "scrub: IFAC network name kept" "$(grep -c '^IFAC_NETNAME=net$' "$T/boot/bobcat-install.conf")" 1
+reset_dirs
+printf 'SCRUB_BOOT_CONF=no\nWIFI_PASS=keepme123\n' > "$T/boot/bobcat-install.conf"
 run
-has   "netplan: file passed through" "ARG --netplan-file" "$ARGS"
+check "scrub: SCRUB_BOOT_CONF=no keeps the passphrase" "$(grep -c '^WIFI_PASS=keepme123$' "$T/boot/bobcat-install.conf")" 1
 
-# 5. installer failure: non-zero exit, no done marker (systemd retries)
-rm -f "$T/np.yaml"
+# 4. baked settings plus boot settings: boot wins (it comes later in the file)
+reset_dirs
+mkdir -p "$T/seed"; printf 'SPREADINGFACTOR=9\nFREQUENCY=868000000\n' > "$T/seed/install.conf"
+printf 'FREQUENCY=915000000\n' > "$T/boot/bobcat-install.conf"
+run
+has   "merge: baked setting present" "SPREADINGFACTOR=9" "$CONF"
+check "merge: boot setting comes after the baked one" \
+      "$(grep -n 'FREQUENCY=' "$T/seed/effective.conf" | tail -1 | cut -d: -f2)" "FREQUENCY=915000000"
+
+# 5. side files are copied into the system and referenced
+reset_dirs
+printf 'HOSTNAME=bobcat1\n' > "$T/boot/bobcat-install.conf"
+printf 'ssh-ed25519 AAAAC3Nza test@host\n' > "$T/boot/bobcat-authorized_keys"
+printf '[reticulum]\n' > "$T/boot/bobcat-reticulum.conf"
+printf 'network: {}\n' > "$T/boot/bobcat-netplan.yaml"
+run
+has   "side files: authorized keys referenced" "SSH_AUTHORIZED_KEYS_FILE=$T/seed/files/authorized_keys" "$CONF"
+has   "side files: Reticulum config referenced" "RETICULUM_CONFIG_FILE=$T/seed/files/reticulum.conf" "$CONF"
+has   "side files: netplan file referenced when nothing else sets the network" "NETPLAN_FILE=$T/seed/files/netplan.yaml" "$CONF"
+check "side files: copies are root-only" "$(stat -c %a "$T/seed/files/authorized_keys")" 600
+cmp -s "$T/boot/bobcat-authorized_keys" "$T/seed/files/authorized_keys" && ok "side files: content preserved" || bad "side files: content preserved"
+
+# 6. a netplan file is not combined with Wi-Fi/Ethernet settings; explicit keys win
+reset_dirs
+printf 'WIFI_SSID=Net\nWIFI_PASS=password123\n' > "$T/boot/bobcat-install.conf"
+printf 'network: {}\n' > "$T/boot/bobcat-netplan.yaml"
+run
+hasnt "conflict: netplan file ignored when Wi-Fi is configured" "NETPLAN_FILE" "$CONF"
+has   "conflict: and the log says so" "bobcat-netplan.yaml: not used" "$OUT"
+reset_dirs
+printf 'ETH_MODE=static\nETH_ADDRESS=192.0.2.9/24\n' > "$T/boot/bobcat-install.conf"
+printf 'network: {}\n' > "$T/boot/bobcat-netplan.yaml"
+run
+hasnt "conflict: netplan file ignored when static Ethernet is configured" "NETPLAN_FILE" "$CONF"
+reset_dirs
+printf 'ETH_MODE=keep\n' > "$T/boot/bobcat-install.conf"
+printf 'network: {}\n' > "$T/boot/bobcat-netplan.yaml"
+run
+has   "conflict: ETH_MODE=keep does not block a netplan file" "NETPLAN_FILE" "$CONF"
+reset_dirs
+printf 'RETICULUM_CONFIG_FILE=/somewhere/else.conf\n' > "$T/boot/bobcat-install.conf"
+printf '[reticulum]\n' > "$T/boot/bobcat-reticulum.conf"
+run
+check "explicit key: not overridden by the side file" "$(grep -c 'RETICULUM_CONFIG_FILE' "$T/seed/effective.conf")" 1
+[[ ! -e "$T/seed/files/reticulum.conf" ]] && ok "explicit key: side file is not copied" || bad "explicit key: side file is not copied"
+
+# 7. retries do not pile up duplicate lines
+reset_dirs
+printf 'FREQUENCY=915000000\n' > "$T/boot/bobcat-install.conf"
 run STUB_RC=1
 check "failure: exit 1" "$RC" 1
-[[ ! -e "$T/state/firstboot.done" ]] && ok "failure: no done marker" || bad "failure: no done marker"
+[[ ! -e "$T/state/firstboot.done" ]] && ok "failure: no done marker (systemd retries)" || bad "failure: no done marker"
+check "failure: FAT partition not scrubbed" "$(grep -c '^FREQUENCY=915000000$' "$T/boot/bobcat-install.conf")" 1
+run
+check "retry: effective file is rebuilt, not appended to" "$(grep -c '^FREQUENCY=915000000$' "$T/seed/effective.conf")" 1
 
-# 6. already done: does nothing
-mkdir -p "$T/state"; touch "$T/state/firstboot.done"; rm -f "$T/out"
-OUT="$(env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_TEST_OUT="$T/out" "$SCRIPT" 2>&1)"
-[[ ! -e "$T/out" ]] && ok "done: installer not run again" || bad "done: installer not run again"
+# 8. already done: does nothing
+rm -f "$T/args"
+mkdir -p "$T/state"; touch "$T/state/firstboot.done"
+OUT="$(env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCAT_SEED="$T/seed" \
+    BOBCAT_BOOT_DIR="$T/boot" BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_TEST_ARGS="$T/args" "$SCRIPT" 2>&1)"
+[[ ! -e "$T/args" ]] && ok "done: installer not run again" || bad "done: installer not run again"
 
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]

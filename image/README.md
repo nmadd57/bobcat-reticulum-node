@@ -1,57 +1,104 @@
-# Self-installing image
+# Self-installing images
 
-`build-image.sh` takes the community Bobcat Armbian image for the G290/G295 and
-adds two things to its root filesystem:
+Two images are built here. Both add the installer and a first-boot service to
+the community Bobcat Armbian image, and neither contains any settings or
+secrets: your Wi-Fi, network, system and radio settings travel in a separate
+file that you place next to the image when you flash it.
 
-- the installer bundle (`/usr/local/share/bobcat-lora/bobcat-g295-install.sh`);
-- a one-shot systemd service, `bobcat-firstboot`, that runs it on first boot
-  once the network is up and the clock is synchronized.
+| Image | Use it when |
+|---|---|
+| **Flasher** (`bobcat-g295-flasher.img.xz`) | normal case. It is the community eMMC flasher: boot the Bobcat from this SD card and it writes the OS to the internal storage, **copying your settings file across**. Recommended for G290/G295. |
+| **Standalone SD** (`bobcat-g295-reticulum.img.xz`) | the OS runs from the SD card itself, nothing is written to the eMMC. |
 
-Nothing else changes. The partition table, the boot partition and the rest of
-the disk are byte-identical to the base image (checked when this was written).
+## Using the flasher (recommended)
 
-## Build
+1. **Write the image to an SD card** (8 GB or larger) and **put your settings on
+   it**:
+   - Linux, one step: `tools/write-sd.sh --config my.conf bobcat-g295-flasher.img.xz /dev/sdX`
+     (checks `my.conf` first, refuses non-removable disks, asks you to retype the
+     device). Add `--keys`, `--netplan`, `--reticulum` for the other files.
+   - Windows or macOS: write the image with any imaging tool, then copy your
+     files onto the card's **BOBCFG** drive (a small FAT partition at the end).
+2. **Settings file:** copy [`firstboot/bobcat-install.conf.example`](firstboot/bobcat-install.conf.example)
+   to `bobcat-install.conf` and edit it. Every setting is optional; see
+   [`docs/config-reference.md`](../docs/config-reference.md). With Wi-Fi in the
+   file, **no network cable is needed**. Without any file the install still
+   works with defaults, but needs a wired network.
+3. **Flash:** power the Bobcat off, put the card in, power on. The LEDs stay on
+   while it writes (a few minutes; the community flasher says up to ten). Do not
+   interrupt it. **This erases the internal storage.**
+4. **Done flashing:** the LEDs flash quickly in a repeating pattern, as with the
+   community flasher. A **slow, even blink** instead means the OS was written but
+   the settings could not be copied (see below). Power off and remove the card.
+5. **First boot** from the eMMC: the system waits for the clock to sync, then
+   installs the node (several minutes, using the network from your settings) and
+   starts the Reticulum service. Follow it with `journalctl -u bobcat-firstboot -f`
+   or `/var/log/bobcat-firstboot.log`. A failed attempt retries every two minutes,
+   up to five times an hour.
 
-In CI: **Actions → Build image → Run workflow**. Push a tag such as `v1.0.0`
-to also attach the image to a release.
+### What the flasher does with your settings
+- Before writing, it looks for partition 7 (`BOBCFG`) on the SD card.
+- After writing, it re-reads the eMMC partition table, mounts the new system's boot
+  partition, and copies these files from `BOBCFG`: `bobcat-install.conf`,
+  `bobcat-netplan.yaml`, `bobcat-authorized_keys`, `bobcat-reticulum.conf`. Each
+  copy is compared byte for byte.
+- The files stay on your SD card. Delete them if the card is shared.
+- The first boot moves them into the installed system under `/etc/bobcat-lora/`
+  (root-only) and clears `WIFI_PASS` and `IFAC_PASSPHRASE` from the copy on the
+  FAT boot partition, which any computer could read.
 
-Locally (no root needed; `e2fsprogs`, `xz`, `curl`, `python3` required):
+If the slow blink shows: the OS is installed but the settings are not on it. Put
+`bobcat-install.conf` on the unit's FAT boot partition (mount `/dev/mmcblk0p1` or
+move the eMMC) before its first boot, or run the installer by hand afterwards.
+
+## Using the standalone SD image
+Write it like any SD image. Before the first boot put the same settings files on
+its small FAT boot partition (label `armbi_boot`). It then installs itself the
+same way.
+
+## Building
+In CI: **Actions → Build images → Run workflow**, or push a `v*` tag to build
+both and attach them to a release. Locally (no root; needs `e2fsprogs`, `xz`,
+`curl`, `python3`, and for the flasher `dosfstools` and `mtools`):
 
 ```
+image/build-flasher.sh                  # -> dist/bobcat-g295-flasher.img.xz
 image/build-image.sh                    # -> dist/bobcat-g295-reticulum.img.xz
-image/build-image.sh --config my.conf   # bake Wi-Fi etc. into the image
+image/build-flasher.sh --preload-config my.conf   # your own copy, settings pre-placed
 ```
+`--preload-config` (and `build-image.sh --config`) put your settings inside the
+image: use them only for a private image and never publish it.
 
-A baked config puts secrets inside the image. Never publish such an image.
+## How the flasher is made
+The community flasher is a tiny Linux on an SD card whose only job is
+`dd`-ing a bundled OS image onto the eMMC. `build-flasher.sh` downloads it
+(checksum-pinned), then, without root and entirely with `debugfs`:
 
-## Use
+1. replays the flasher filesystem's pending journal (see below);
+2. extracts the OS image it carries, adds the installer and first-boot service,
+   and puts it back;
+3. replaces `/init.sh` with [`flasher/init.sh`](flasher/init.sh), which does what
+   the original did plus the settings copy;
+4. runs `e2fsck` to fix the counters `debugfs` leaves stale;
+5. appends the 64 MiB FAT partition `BOBCFG` to the disk image
+   ([`tools/gpt_tool.py`](tools/gpt_tool.py) rewrites both GPT headers) and
+   formats it with a README and the example file.
 
-1. Write the `.img.xz` where you would write the community image, following the
-   community instructions for your unit. This image is a drop-in replacement
-   for `BobcatArmbian29x.img`.
-2. Optional: before first boot, put a `bobcat-install.conf` on the small FAT
-   partition (label `armbi_boot`) of the card. Start from
-   [`firstboot/bobcat-install.conf.example`](firstboot/bobcat-install.conf.example).
-   A complete netplan file named `bobcat-netplan.yaml` there is also accepted.
-3. Power on with Ethernet connected (or Wi-Fi settings in the file). First boot
-   waits for the clock to sync, then installs. Watch it with
-   `journalctl -u bobcat-firstboot -f` or read `/var/log/bobcat-firstboot.log`.
-   A failed attempt is retried every two minutes, up to five times an hour.
+The first 16 MiB of the disk (bootloader area) and the flasher's root filesystem
+contents other than those files are byte-for-byte what the community published.
 
-When it finishes, `/var/lib/bobcat-lora/firstboot.done` exists and the
-`rnsd-sx1302` service is running.
-
-## Settings (`bobcat-install.conf`)
-
-`KEY=value` lines; the file is parsed, never executed, and only these keys are
-read: `WIFI_SSID WIFI_PASS WIFI_HIDDEN WIFI_OPEN FREQUENCY BANDWIDTH
-SPREADINGFACTOR CODINGRATE TXPOWER TRANSPORT AUTOINTERFACE SCRUB_BOOT_CONF`.
-The Wi-Fi passphrase is passed to the installer through a mode-600 temporary
-file, and is blanked in the FAT-partition copy after a successful install
-unless `SCRUB_BOOT_CONF=no`.
+**Why the journal matters:** the community flasher's filesystem was shipped with
+an unreplayed journal. `debugfs` writes metadata directly, and a later replay
+(by `e2fsck` or at mount) would overwrite those edits. The build replays it
+first and refuses to edit any filesystem that still has one
+(`assert_clean_journal`).
 
 ## Status
-
-The build, the filesystem check and the first-boot script's logic are tested in
-CI and locally. **The built image has not been flashed to a unit yet**; the
-installer it carries is the one verified on hardware.
+Built and checked in CI: partition tables (two independent tools), FAT contents
+and label, mounting, the settings writer, the first-boot and flasher scripts'
+logic. **Not yet done on hardware:** flashing a Bobcat with the flasher image and
+watching a first boot. The part most worth watching is the settings copy: the
+flasher's BusyBox environment has no kernel modules, so FAT is mounted with the
+kernel's built-in `cp437` character table; the kernel's own default table is a
+module and would fail. The script tries `cp437`, `utf8`, `ascii` and the default
+in turn and logs which one worked.

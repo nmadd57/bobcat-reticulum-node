@@ -2,21 +2,20 @@
 #
 # First-boot installer for the Bobcat Reticulum node image.
 #
-# Runs once (systemd unit bobcat-firstboot.service). It reads optional settings
-# from two files, then runs the bundled installer:
+# Runs once (systemd unit bobcat-firstboot.service). Settings come from files
+# that were placed on the boot partition (FAT) before flashing. The eMMC flasher
+# copies them there from the SD card; for the standalone image you put them there
+# yourself:
 #
-#   /etc/bobcat-lora/install.conf   baked into the image at build time
-#   /boot/bobcat-install.conf       created by you on the SD card's boot (FAT)
-#                                   partition after flashing; wins over the above
-#   /boot/bobcat-netplan.yaml       optional: a complete netplan config to install
-#                                   (used when WIFI_SSID is not set)
+#   /boot/bobcat-install.conf       settings, KEY=value lines (docs/config-reference.md)
+#   /boot/bobcat-netplan.yaml       optional: a complete netplan config
+#   /boot/bobcat-authorized_keys    optional: SSH public keys for root
+#   /boot/bobcat-reticulum.conf     optional: a complete Reticulum config
 #
-# Format: KEY=value, one per line, '#' starts a comment. Only the keys listed
-# below are honoured; the files are parsed, never executed.
-#
-#   WIFI_SSID  WIFI_PASS  WIFI_HIDDEN(0/1)  WIFI_OPEN(0/1)
-#   FREQUENCY  BANDWIDTH  SPREADINGFACTOR  CODINGRATE  TXPOWER
-#   TRANSPORT(yes/no)  AUTOINTERFACE(yes/no)  SCRUB_BOOT_CONF(yes/no)
+# This script copies them into the installed system under /etc/bobcat-lora/
+# (root-only), merges them with any settings baked into the image, and runs the
+# bundled installer with the result. The installer does all the parsing and
+# validation; the files are never executed.
 #
 # Log: /var/log/bobcat-firstboot.log   Marker: /var/lib/bobcat-lora/firstboot.done
 
@@ -27,10 +26,13 @@ INSTALLER="${BOBCAT_INSTALLER:-/usr/local/share/bobcat-lora/bobcat-g295-install.
 STATE="${BOBCAT_STATE:-/var/lib/bobcat-lora}"
 DONE="$STATE/firstboot.done"
 LOG="${BOBCAT_LOG:-/var/log/bobcat-firstboot.log}"
-CONF_BAKED="${BOBCAT_CONF_BAKED:-/etc/bobcat-lora/install.conf}"
-CONF_BOOT="${BOBCAT_CONF_BOOT:-/boot/bobcat-install.conf}"
-NETPLAN_BOOT="${BOBCAT_NETPLAN_BOOT:-/boot/bobcat-netplan.yaml}"
+SEED="${BOBCAT_SEED:-/etc/bobcat-lora}"
+BOOT_DIR="${BOBCAT_BOOT_DIR:-/boot}"
 SKIP_SYSTEM="${BOBCAT_TEST_SKIP_SYSTEM:-0}"   # tests: no apt-mark/systemctl/time wait
+
+BAKED="$SEED/install.conf"            # baked into the image at build time (optional)
+EFFECTIVE="$SEED/effective.conf"      # what the installer is given
+BOOT_CONF="$BOOT_DIR/bobcat-install.conf"
 
 mkdir -p "$STATE"
 exec > >(tee -a "$LOG") 2>&1
@@ -48,31 +50,51 @@ if [[ "$SKIP_SYSTEM" != "1" ]]; then
     done
 fi
 
-declare -A C=()
-load_conf() {
-    local file="$1" line key val
-    [[ -r "$file" ]] || return 0
-    echo "reading $file"
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        line="${line%$'\r'}"
-        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
-        if [[ "$line" =~ ^[[:space:]]*([A-Z0-9_]+)[[:space:]]*=(.*)$ ]]; then
-            key="${BASH_REMATCH[1]}"
-            val="${BASH_REMATCH[2]}"
-            val="${val#"${val%%[![:space:]]*}"}"
-            if [[ "$val" =~ ^\"(.*)\"$ ]]; then val="${BASH_REMATCH[1]}"
-            elif [[ "$val" =~ ^\'(.*)\'$ ]]; then val="${BASH_REMATCH[1]}"; fi
-            case "$key" in
-                WIFI_SSID|WIFI_PASS|WIFI_HIDDEN|WIFI_OPEN|FREQUENCY|BANDWIDTH|\
-SPREADINGFACTOR|CODINGRATE|TXPOWER|TRANSPORT|AUTOINTERFACE|SCRUB_BOOT_CONF)
-                    C[$key]="$val" ;;
-                *)  echo "ignoring unknown key $key in $file" ;;
-            esac
-        fi
-    done < "$file"
+key_is_set() { grep -qE "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" "$EFFECTIVE"; }
+
+# Copy one optional side file into the system and point the config at it,
+# unless the settings file already names one itself.
+attach_side_file() {   # attach_side_file <name on boot partition> <name here> <KEY>
+    local src="$BOOT_DIR/$1" dest="$SEED/files/$2" key="$3"
+    [[ -r "$src" ]] || return 0
+    if key_is_set "$key"; then
+        echo "$1: not used, the settings file already sets $key"
+        return 0
+    fi
+    install -m 600 "$src" "$dest"
+    printf '%s=%s\n' "$key" "$dest" >> "$EFFECTIVE"
+    echo "using $1"
 }
-load_conf "$CONF_BAKED"
-load_conf "$CONF_BOOT"
+
+seed_config() {
+    install -d -m 700 "$SEED" "$SEED/files"
+    : > "$EFFECTIVE"
+    chmod 600 "$EFFECTIVE"
+
+    if [[ -r "$BAKED" ]]; then
+        echo "reading settings baked into the image"
+        { echo "# --- baked into the image"; tr -d '\r' < "$BAKED"; echo; } >> "$EFFECTIVE"
+    fi
+    if [[ -r "$BOOT_CONF" ]]; then
+        echo "reading $BOOT_CONF"
+        { echo "# --- $BOOT_CONF"; tr -d '\r' < "$BOOT_CONF"; echo; } >> "$EFFECTIVE"
+    else
+        echo "no $BOOT_CONF: installing with defaults (wired network needed)"
+    fi
+
+    attach_side_file bobcat-authorized_keys authorized_keys SSH_AUTHORIZED_KEYS_FILE
+    attach_side_file bobcat-reticulum.conf  reticulum.conf  RETICULUM_CONFIG_FILE
+    # A complete netplan file replaces the Wi-Fi/Ethernet settings, so it cannot
+    # be combined with them.
+    if [[ -r "$BOOT_DIR/bobcat-netplan.yaml" ]] &&
+       grep -qE '^[[:space:]]*(WIFI_SSID|ETH_MODE[[:space:]]*=[[:space:]]*(dhcp|static))' "$EFFECTIVE"; then
+        echo "bobcat-netplan.yaml: not used, the settings file already configures Wi-Fi/Ethernet"
+    else
+        attach_side_file bobcat-netplan.yaml netplan.yaml NETPLAN_FILE
+    fi
+}
+
+seed_config
 
 # The board has no battery-backed clock. A stale clock makes TLS (apt, pip)
 # fail with "certificate is not yet valid", so wait for time sync first.
@@ -84,35 +106,8 @@ for _ in $(seq 1 90); do
 done
 echo "clock: $(date -Is) synchronized=$(timedatectl show -p NTPSynchronized --value 2>/dev/null)"
 
-args=()
-PWFILE=""
-cleanup() { [[ -n "$PWFILE" ]] && rm -f "$PWFILE"; }
-trap cleanup EXIT
-
-if [[ -n "${C[WIFI_SSID]:-}" ]]; then
-    args+=(--wifi-ssid "${C[WIFI_SSID]}")
-    if [[ "${C[WIFI_OPEN]:-0}" == "1" ]]; then
-        args+=(--wifi-open)
-    else
-        PWFILE="$(mktemp)"
-        chmod 600 "$PWFILE"
-        printf '%s\n' "${C[WIFI_PASS]:-}" > "$PWFILE"
-        args+=(--wifi-pass-file "$PWFILE")
-    fi
-    [[ "${C[WIFI_HIDDEN]:-0}" == "1" ]] && args+=(--wifi-hidden)
-elif [[ -r "$NETPLAN_BOOT" ]]; then
-    args+=(--netplan-file "$NETPLAN_BOOT")
-fi
-[[ -n "${C[FREQUENCY]:-}"        ]] && args+=(--frequency "${C[FREQUENCY]}")
-[[ -n "${C[BANDWIDTH]:-}"        ]] && args+=(--bandwidth "${C[BANDWIDTH]}")
-[[ -n "${C[SPREADINGFACTOR]:-}"  ]] && args+=(--spreadingfactor "${C[SPREADINGFACTOR]}")
-[[ -n "${C[CODINGRATE]:-}"       ]] && args+=(--codingrate "${C[CODINGRATE]}")
-[[ -n "${C[TXPOWER]:-}"          ]] && args+=(--txpower "${C[TXPOWER]}")
-[[ "${C[TRANSPORT]:-yes}" == "no" ]] && args+=(--no-transport)
-[[ "${C[AUTOINTERFACE]:-yes}" == "no" ]] && args+=(--no-autointerface)
-
-echo "running installer (options: $(printf '%q ' "${args[@]}" | sed -E 's/--wifi-pass-file [^ ]+/--wifi-pass-file <file>/'))"
-if ! "$INSTALLER" "${args[@]}"; then
+echo "running the installer with $EFFECTIVE"
+if ! "$INSTALLER" --config "$EFFECTIVE"; then
     echo "== installer failed; systemd will retry"
     exit 1
 fi
@@ -120,11 +115,12 @@ fi
 touch "$DONE"
 echo "== $(date -Is) first-boot install complete"
 
-# Do not leave the Wi-Fi passphrase sitting in plain text on the FAT partition.
-if [[ "${C[SCRUB_BOOT_CONF]:-yes}" != "no" && -w "$CONF_BOOT" ]] &&
-   grep -qE '^[[:space:]]*WIFI_PASS[[:space:]]*=[^[:space:]]' "$CONF_BOOT"; then
-    sed -i -E 's/^([[:space:]]*WIFI_PASS[[:space:]]*=).*/\1/' "$CONF_BOOT" &&
-        echo "cleared WIFI_PASS in $CONF_BOOT"
+# Do not leave secrets sitting in plain text on the FAT partition (readable from
+# any computer). The root-only copy under $SEED keeps them for re-runs.
+if [[ -w "$BOOT_CONF" ]] && ! grep -qE '^[[:space:]]*SCRUB_BOOT_CONF[[:space:]]*=[[:space:]]*(no|false|0|off)' "$BOOT_CONF" &&
+   grep -qE '^[[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE)[[:space:]]*=[^[:space:]]' "$BOOT_CONF"; then
+    sed -i -E 's/^([[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE)[[:space:]]*=).*/\1/' "$BOOT_CONF" &&
+        echo "cleared passphrases in $BOOT_CONF"
 fi
 [[ "$SKIP_SYSTEM" == "1" ]] || systemctl disable bobcat-firstboot.service >/dev/null 2>&1 || true
 exit 0
