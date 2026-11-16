@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/logo.svg" width="240" alt="Cat ears over a hammer and sickle in one circle"></p>
 
-# bobcat-reticulum-node
+<h1 align="center">bobcat-reticulum-node</h1>
 
-### The People's RNode
+<p align="center"><img src="docs/tagline.svg" width="300" alt="The People's RNode"></p>
 
 Turn a retired **Helium hotspot (Bobcat Miner 300, G290/G295)** into a
 [Reticulum](https://reticulum.network/) LoRa node. The board's onboard **SX1302**
