@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-need_tools curl xz python3 debugfs e2fsck sha256sum
+need_tools curl xz python3 debugfs e2fsck dumpe2fs sha256sum
 [[ "$SKIP_FAT" -eq 1 ]] || need_tools mkfs.vfat mcopy mdir
 
 if [[ ! -f "$INSTALLER" ]]; then
@@ -103,9 +103,14 @@ note "flasher rootfs at byte offset $ROOT_OFF (size $ROOT_SIZE)"
 # The community flasher's filesystem was left with an unreplayed journal. Replay it
 # now, before any edit: replaying it later would overwrite the edits.
 log "Preparing the flasher filesystem"
-if dumpe2fs -h "$FS" 2>/dev/null | grep -q '^Filesystem features:.*needs_recovery'; then
+pending=0
+has_pending_journal "$FS" || pending=$?
+[[ "$pending" -ne 2 ]] || exit 1
+if [[ "$pending" -eq 0 ]]; then
     note "replaying the pending journal (e2fsck -fy)"
     repair_partition "$IMG" "$ROOT_OFF" "$ROOT_SIZE" "$WORK/e2fsck-prep.out"
+else
+    note "no pending journal"
 fi
 assert_clean_journal "$FS"
 note "ok  no pending journal"

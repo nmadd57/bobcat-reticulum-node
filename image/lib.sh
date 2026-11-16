@@ -54,16 +54,41 @@ sys.exit(f"no partition named {want}")
 PY
 }
 
+# super_info FS_SPEC
+#
+# Prints the superblock summary (dumpe2fs -h). Captured into a variable first, so
+# there is no pipe to be closed early, and a failure shows dumpe2fs's own message
+# instead of vanishing. The exit status is not trusted, only whether a superblock
+# came out.
+super_info() {
+    local out
+    out="$(dumpe2fs -h "$1" 2>&1)" || true
+    if ! grep -q '^Filesystem features:' <<<"$out"; then
+        printf '%s\n' "$out" | tail -5 >&2
+        fail "dumpe2fs could not read the filesystem at $1"
+    fi
+    printf '%s\n' "$out"
+}
+
+# has_pending_journal FS_SPEC   (status 0 = a journal still has to be replayed)
+has_pending_journal() {
+    local info feats start
+    info="$(super_info "$1")" || return 2
+    feats="$(sed -n 's/^Filesystem features: *//p' <<<"$info")"
+    start="$(sed -n 's/^Journal start: *//p' <<<"$info")"
+    [[ " $feats " == *" needs_recovery "* || ( -n "$start" && "$start" != "0" ) ]]
+}
+
 # assert_clean_journal FS_SPEC
 #
 # debugfs writes metadata directly. If the filesystem still has an unreplayed
 # journal, the next mount (or fsck) replays it OVER those changes and silently
 # undoes them. Refuse to edit such a filesystem.
 assert_clean_journal() {
-    local fs="$1" feats start
-    feats="$(dumpe2fs -h "$fs" 2>/dev/null | sed -n 's/^Filesystem features: *//p')"
-    start="$(dumpe2fs -h "$fs" 2>/dev/null | sed -n 's/^Journal start: *//p')"
-    if [[ " $feats " == *" needs_recovery "* || ( -n "$start" && "$start" != "0" ) ]]; then
+    local rc=0
+    has_pending_journal "$1" || rc=$?
+    [[ "$rc" -ne 2 ]] || exit 1
+    if [[ "$rc" -eq 0 ]]; then
         fail "the filesystem has an unreplayed journal; editing it would be undone at mount (needs_recovery set)"
     fi
 }
