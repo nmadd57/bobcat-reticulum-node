@@ -80,12 +80,13 @@ for shell in bash dash; do
     # 3. no settings partition at all
     rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_emmc "$T"
     out="$(run_case "$shell" "$T" 'find_sidecar || true; rc=0; copy_sidecar || rc=$?; echo "rc=$rc"')"
-    [[ "$out" == *"rc=0"* && "$out" == *"install with defaults"* ]] && ok "$shell: no partition is not an error" || bad "$shell: no partition is not an error" "$out"
+    [[ "$out" == *"rc=2"* && "$out" == *"install with defaults"* ]] && ok "$shell: no partition gives the no-settings outcome (rc 2)" || bad "$shell: no partition gives the no-settings outcome" "$out"
+    [[ -s "$T/dev/mmcblk0p1.d/bobcat-flasher.log" ]] && ok "$shell: a flasher log is left on the eMMC even with no settings" || bad "$shell: flasher log with no settings"
 
     # 4. partition present but empty
     rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_sd "$T"; make_emmc "$T"
     out="$(run_case "$shell" "$T" 'find_sidecar || true; rc=0; copy_sidecar || rc=$?; echo "rc=$rc"')"
-    [[ "$out" == *"rc=0"* && "$out" == *"no settings files"* ]] && ok "$shell: empty partition is not an error" || bad "$shell: empty partition is not an error" "$out"
+    [[ "$out" == *"rc=2"* && "$out" == *"holds no settings files"* ]] && ok "$shell: empty partition gives the no-settings outcome (rc 2)" || bad "$shell: empty partition gives the no-settings outcome" "$out"
 
     # 5. eMMC boot partition never appears -> failure reported
     rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_sd "$T" bobcat-install.conf; : > "$T/dev/mmcblk0"
@@ -101,6 +102,24 @@ for shell in bash dash; do
     rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_emmc "$T"; : > "$T/dev/mmcblk0p7"; mkdir -p "$T/dev/mmcblk0p7.d"; printf x > "$T/dev/mmcblk0p7.d/bobcat-install.conf"
     out="$(run_case "$shell" "$T" 'find_sidecar || true; echo "found=$SIDECAR_MOUNTED"')"
     [[ "$out" == *"found=0"* ]] && ok "$shell: the eMMC's own partition 7 is ignored" || bad "$shell: the eMMC's own partition 7 is ignored" "$out"
+
+    # 8. settings on a different partition number are still found
+    rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_emmc "$T"
+    : > "$T/dev/mmcblk1p3"; mkdir -p "$T/dev/mmcblk1p3.d"; printf 'WIFI_SSID=x\n' > "$T/dev/mmcblk1p3.d/bobcat-install.conf"
+    out="$(run_case "$shell" "$T" 'find_sidecar || true; rc=0; copy_sidecar || rc=$?; echo "rc=$rc"')"
+    [[ "$out" == *"rc=0"* && -f "$T/dev/mmcblk0p1.d/bobcat-install.conf" ]] && ok "$shell: settings on another partition number are found" || bad "$shell: settings on another partition number are found" "$out"
+
+    # 9. an earlier partition without settings does not hide partition 7
+    rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_sd "$T" bobcat-install.conf; make_emmc "$T"
+    : > "$T/dev/mmcblk1p1"; mkdir -p "$T/dev/mmcblk1p1.d"; printf x > "$T/dev/mmcblk1p1.d/other.txt"
+    out="$(run_case "$shell" "$T" 'find_sidecar || true; rc=0; copy_sidecar || rc=$?; echo "rc=$rc"')"
+    [[ "$out" == *"rc=0"* && -f "$T/dev/mmcblk0p1.d/bobcat-install.conf" ]] && ok "$shell: a partition without settings is skipped" || bad "$shell: a partition without settings is skipped" "$out"
+
+    # 10. the log on the eMMC says where the settings came from and what was copied
+    rm -rf "$T"; T="$(mktemp -d)"; setup "$T"; make_sd "$T" bobcat-install.conf; make_emmc "$T"
+    run_case "$shell" "$T" 'find_sidecar || true; copy_sidecar || true' >/dev/null
+    grep -q "settings found on" "$T/dev/mmcblk0p1.d/bobcat-flasher.log" && grep -q "copied bobcat-install.conf" "$T/dev/mmcblk0p1.d/bobcat-flasher.log" &&
+        ok "$shell: bobcat-flasher.log records the source and the copy" || bad "$shell: bobcat-flasher.log content" "$(cat "$T/dev/mmcblk0p1.d/bobcat-flasher.log" 2>&1)"
 
     rm -rf "$T"
 done

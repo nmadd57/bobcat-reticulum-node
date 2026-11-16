@@ -38,7 +38,8 @@ is needed.
 4. Copy `bobcat-install.conf` onto the card's **BOBCFG** drive (re-plug the card if
    it does not show up). Keep the exact file name.
 5. Put the card in the Bobcat and power on. It flashes its internal storage, copying
-   your settings across; when the LEDs flash quickly, power off and remove the card.
+   your settings across. Three quick flashes mean it is done and the settings were copied (two slow
+   flashes mean no settings were found); then power off and remove the card.
    Power on again: first boot installs the node by itself and joins your Wi-Fi.
 
 What the settings file can carry: Wi-Fi (2.4 GHz only, hidden SSIDs supported) or a

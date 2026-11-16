@@ -38,9 +38,15 @@ file that you place next to the image when you flash it.
 3. **Flash:** power the Bobcat off, put the card in, power on. The LEDs stay on
    while it writes (a few minutes; the community flasher says up to ten). Do not
    interrupt it. **This erases the internal storage.**
-4. **Done flashing:** the LEDs flash quickly in a repeating pattern, as with the
-   community flasher. A **slow, even blink** instead means the OS was written but
-   the settings could not be copied (see below). Power off and remove the card.
+4. **Done flashing:** read the LEDs before you pull the card.
+   - **Three quick flashes, pause, repeat:** done, and your settings were copied.
+   - **Two slow flashes, longer pause:** the OS was written but **no settings were found** on the card, so the
+     node will install with defaults and needs a network cable. Check that BOBCFG holds
+     `bobcat-install.conf` (exact name), or copy it to the unit's `/boot` by hand.
+   - **Slow, even blink:** the OS was written but copying the settings failed.
+
+   After the first boot, `/boot/bobcat-flasher.log` on the unit records what the flasher
+   found on the card and what it copied. Power off and remove the card.
    **The Wi-Fi network must have internet access.** The install downloads packages
    (apt, PyPI), may fetch SSH keys from GitHub, and syncs the clock. A network that
    only reaches your local network (an isolated IoT VLAN, for example) lets the unit
