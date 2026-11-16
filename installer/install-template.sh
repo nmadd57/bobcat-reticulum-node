@@ -472,6 +472,7 @@ generate_network_yaml() {
     local out="$1" wifi_iface="$2" eth_iface="$3"
     W_SSID="$OPT_WIFI_SSID" W_PASS="$OPT_WIFI_PASS" W_IFACE="$wifi_iface" W_HIDDEN="$OPT_WIFI_HIDDEN" \
     E_IFACE="$eth_iface" E_MODE="$OPT_ETH_MODE" E_ADDR="$OPT_ETH_ADDR" E_GW="$OPT_ETH_GW" E_DNS="$OPT_ETH_DNS" \
+    N_DIR="${BOBCAT_NETPLAN_DIR:-/etc/netplan}" \
     python3 - "$out" <<'PY'
 import glob, ipaddress, os, sys
 import yaml
@@ -486,11 +487,15 @@ mine = os.path.basename(out)
 
 # Netplan rejects the same access point in two files, and a second definition of
 # the same Ethernet interface would silently merge with this one.
-for path in sorted(glob.glob("/etc/netplan/*.yaml")):
+for path in sorted(glob.glob(os.path.join(env["N_DIR"], "*.yaml"))):
     if os.path.basename(path) == mine:
         continue
     try:
         doc = yaml.safe_load(open(path)) or {}
+    except PermissionError:
+        # Only happens in a dry run as a normal user; a real install runs as root.
+        print(f"note: cannot read {path} (permission denied); not checked for duplicates", file=sys.stderr)
+        continue
     except Exception as exc:
         sys.exit(f"cannot read {path}: {exc}")
     net = doc.get("network") or {}

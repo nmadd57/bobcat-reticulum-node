@@ -9,6 +9,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALLER="$HERE/install-template.sh"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
+# Do not depend on (or be confused by) the host's own netplan files.
+mkdir -p "$T/netplan"
+export BOBCAT_NETPLAN_DIR="$T/netplan"
 
 pass=0 failed=0
 ok()    { pass=$((pass + 1)); printf 'ok   %s\n' "$1"; }
@@ -121,6 +124,23 @@ plan --eth-mode dhcp
 has   "netplan: DHCP Ethernet" "dhcp4: true" "$OUT"
 plan --wifi-ssid OpenCafe --wifi-open
 has   "netplan: open network has no password key" "OpenCafe: {}" "$OUT"
+
+# --------------------------------------------- duplicate definitions are refused
+printf 'network:\n  version: 2\n  wifis:\n    wlan0:\n      access-points:\n        "Taken":\n          password: "whatever123"\n' > "$T/netplan/10-existing.yaml"
+plan_fail "guard: an SSID already defined elsewhere" "already defined in" --wifi-ssid Taken --wifi-pass password123
+plan_ok   "guard: a different SSID is fine" --wifi-ssid Different --wifi-pass password123
+printf 'network:\n  version: 2\n  ethernets:\n    end0:\n      dhcp4: true\n' > "$T/netplan/20-eth.yaml"
+plan_fail "guard: Ethernet interface already defined elsewhere" "end0 is already defined in" --eth-mode dhcp
+plan_ok   "guard: Ethernet mode keep ignores that" --eth-mode keep --hostname still-fine
+if [[ "$EUID" -ne 0 ]]; then
+    printf 'network: {}\n' > "$T/netplan/30-secret.yaml"; chmod 000 "$T/netplan/30-secret.yaml"
+    plan --eth-mode static --eth-address 192.0.2.5/24 --wifi-ssid Another --wifi-pass password123
+    rm -f "$T/netplan/20-eth.yaml"
+    plan --wifi-ssid Another --wifi-pass password123
+    if [[ $RC -eq 0 && "$OUT" == *"not checked for duplicates"* ]]; then ok "guard: an unreadable file is skipped with a note (dry run as a normal user)"; else bad "guard: unreadable file" "$OUT"; fi
+    chmod 600 "$T/netplan/30-secret.yaml"
+fi
+rm -f "$T/netplan/"*.yaml
 
 # ------------------------------------------------------------- OS settings
 printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest user@host\n# comment\n\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 other@host\n' > "$T/keys"
