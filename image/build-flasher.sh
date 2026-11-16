@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-need_tools curl xz python3 debugfs e2fsck dumpe2fs sha256sum
+need_tools curl xz python3 debugfs e2fsck sha256sum
 [[ "$SKIP_FAT" -eq 1 ]] || need_tools mkfs.vfat mcopy mdir
 
 if [[ ! -f "$INSTALLER" ]]; then

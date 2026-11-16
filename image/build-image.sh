@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-need_tools curl xz python3 debugfs e2fsck dumpe2fs sha256sum
+need_tools curl xz python3 debugfs e2fsck sha256sum
 
 if [[ ! -f "$INSTALLER" ]]; then
     log "Building the installer bundle"

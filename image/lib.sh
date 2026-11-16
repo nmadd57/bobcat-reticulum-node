@@ -56,27 +56,27 @@ PY
 
 # super_info FS_SPEC
 #
-# Prints the superblock summary (dumpe2fs -h). Captured into a variable first, so
-# there is no pipe to be closed early, and a failure shows dumpe2fs's own message
-# instead of vanishing. The exit status is not trusted, only whether a superblock
-# came out.
+# Prints the superblock summary (debugfs "stats -h"). debugfs is used rather than
+# dumpe2fs because some dumpe2fs versions (seen: 1.47.2) fail on the ?offset=
+# syntax. Output is captured into a variable first, so there is no pipe to be
+# closed early, and a failure shows the tool's own message instead of vanishing.
 super_info() {
     local out
-    out="$(dumpe2fs -h "$1" 2>&1)" || true
+    out="$(debugfs -R "stats -h" "$1" 2>&1)" || true
     if ! grep -q '^Filesystem features:' <<<"$out"; then
         printf '%s\n' "$out" | tail -5 >&2
-        fail "dumpe2fs could not read the filesystem at $1"
+        fail "could not read the filesystem superblock at $1"
     fi
     printf '%s\n' "$out"
 }
 
 # has_pending_journal FS_SPEC   (status 0 = a journal still has to be replayed)
+# The needs_recovery feature flag is what mount and e2fsck act on.
 has_pending_journal() {
-    local info feats start
+    local info feats
     info="$(super_info "$1")" || return 2
     feats="$(sed -n 's/^Filesystem features: *//p' <<<"$info")"
-    start="$(sed -n 's/^Journal start: *//p' <<<"$info")"
-    [[ " $feats " == *" needs_recovery "* || ( -n "$start" && "$start" != "0" ) ]]
+    [[ " $feats " == *" needs_recovery "* ]]
 }
 
 # assert_clean_journal FS_SPEC

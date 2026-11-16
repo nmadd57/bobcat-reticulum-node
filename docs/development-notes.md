@@ -52,7 +52,9 @@ Things learned while building this, kept because each one cost time.
 
 ## Editing ext4 images without root
 - `debugfs -w image?offset=N` edits a filesystem inside a disk image. Read-only
-  `debugfs`, `dumpe2fs` and `e2fsck -fn` accept the same syntax.
+  `debugfs` and `e2fsck -fn` accept the same syntax. **`dumpe2fs` does not on
+  every version** (1.47.2 fails with "Unable to resolve '-h'"), so superblock
+  facts come from `debugfs -R "stats -h"`.
 - **`e2fsck -fy` does not work through `?offset=`**: after replaying the journal
   it re-opens the file by plain name and fails. Extract the partition, repair it,
   write it back (`repair_partition` in `image/lib.sh`).
@@ -74,3 +76,7 @@ Things learned while building this, kept because each one cost time.
   testable without hardware.
 - Values in the settings file are literal. Do not try to escape quotes; a
   passphrase can contain `"` and `$(...)` safely because nothing is evaluated.
+- Do not hide a tool's stderr inside a `set -o pipefail` pipeline: a failure
+  there ends the script with no message. Capture output into a variable and
+  report it (`super_info` in `image/lib.sh`). `grep -q` at the end of a pipe can
+  also close it early and make the left side look like it failed (SIGPIPE).
