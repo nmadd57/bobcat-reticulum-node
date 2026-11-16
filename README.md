@@ -23,7 +23,8 @@ the SD card next to the image, so nothing secret is baked into it and no network
 is needed.
 
 1. Get `bobcat-g295-flasher.img.xz` from a release (or run **Actions → Build images**).
-2. Make your settings file with the questionnaire (or edit
+2. Make your settings file with the [**web config generator**](https://nmadd57.github.io/bobcat-reticulum-node/)
+   (it runs in your browser; nothing is sent anywhere), or with the questionnaire (or edit
    [`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example)
    by hand; [reference](docs/config-reference.md)):
    ```
@@ -83,6 +84,7 @@ cannot join networks that require it; and Wi-Fi on this board is 2.4 GHz only.
 | `installer/` | the self-extracting installer (template + builder) |
 | `image/` | first-boot service, flasher and image builders, partition tool |
 | `tools/` | `make-config.py`: questionnaire that writes your `bobcat-install.conf` |
+| `site/` | the web config generator (static page, published with GitHub Pages) |
 | `bobcat-g295/` | board profile, reset script, announce test, netplan examples |
 | `sx1302_rns/` | the Reticulum SX1302 interface (a modified copy of an MIT project) plus the vendored Semtech HAL |
 | `netboot/`, `maas/` | PXE / MAAS design notes (experimental) |

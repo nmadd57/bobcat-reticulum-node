@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Config generator · The People's RNode</title>
+<meta name="description" content="Make the bobcat-install.conf settings file for a Bobcat Reticulum node. Everything happens in your browser.">
+<style>
+:root{--bg:#fbfaf8;--fg:#1d1b1a;--mut:#6b6560;--line:#ddd7d0;--card:#fff;--red:#c8001e;--redfg:#fff;--bad:#b00020;--ok:#1b6e3a;--code:#f3efea}
+@media (prefers-color-scheme:dark){:root{--bg:#161413;--fg:#efe9e3;--mut:#a39b93;--line:#3a3532;--card:#1e1b1a;--red:#ff4a5f;--redfg:#1a0508;--bad:#ff8a9a;--ok:#7bd89a;--code:#12100f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 18px 64px}
+header{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+header img{width:120px;height:auto}
+h1{margin:0;font-size:1.6rem;line-height:1.2}
+h1 small{display:block;color:var(--red);font-size:1rem;font-weight:600;margin-top:4px}
+.lead{color:var(--mut);max-width:70ch;margin:8px 0 24px}
+.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+fieldset{border:1px solid var(--line);background:var(--card);border-radius:10px;margin:0 0 16px;padding:14px 16px 6px}
+legend{font-weight:700;padding:0 6px}
+.row{margin:0 0 12px}
+label{display:block;font-weight:600;font-size:.92rem;margin-bottom:3px}
+.hint{color:var(--mut);font-size:.84rem;margin:3px 0 0}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:76px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--red);outline-offset:1px}
+.check{display:flex;gap:8px;align-items:flex-start;margin:0 0 10px}
+.check input{margin-top:5px}.check label{margin:0;font-weight:500}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:520px){.cols{grid-template-columns:1fr}}
+.sub{margin-left:22px;padding-left:12px;border-left:3px solid var(--line)}
+.err{color:var(--bad);font-size:.84rem;margin:3px 0 0;min-height:0}
+input.invalid,textarea.invalid,select.invalid{border-color:var(--bad)}
+.side{position:sticky;top:12px}
+@media (max-width:860px){.side{position:static}}
+pre{margin:0;padding:12px;background:var(--code);border:1px solid var(--line);border-radius:8px;overflow:auto;font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace;max-height:55vh;white-space:pre}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+button{font:inherit;font-weight:600;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button.primary{background:var(--red);color:var(--redfg);border-color:var(--red)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.status{font-size:.9rem;margin:6px 0}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
+ol{padding-left:20px;margin:8px 0}li{margin:4px 0}
+.note{border-left:4px solid var(--red);padding:8px 12px;background:var(--card);border-radius:0 8px 8px 0;margin:0 0 16px;font-size:.92rem}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
+footer{margin-top:32px;color:var(--mut);font-size:.85rem}
+a{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <img src="logo.svg" alt="Cat ears over a hammer and sickle in one circle">
+  <h1>Config generator<small>The People's RNode</small></h1>
+</header>
+<p class="lead">Fill in what you need and leave the rest. This makes the <code>bobcat-install.conf</code> file that goes on the flasher SD card next to the image. Everything happens in this page; nothing you type is sent anywhere.</p>
+
+<div class="grid">
+<form id="f" autocomplete="off" novalidate>
+
+<fieldset><legend>Wi-Fi</legend>
+  <div class="check"><input type="checkbox" id="wifi" checked><label for="wifi">Join a Wi-Fi network (needed if there is no network cable)</label></div>
+  <div id="wifiBox" class="sub">
+    <div class="row"><label for="wifiSsid">Network name (SSID)</label><input type="text" id="wifiSsid"><div class="err" data-for="wifiSsid"></div>
+      <p class="hint">2.4 GHz only: this board's Wi-Fi chip cannot see 5 GHz. The network must also reach the internet for the install.</p></div>
+    <div class="check"><input type="checkbox" id="wifiHidden"><label for="wifiHidden">Hidden network (name not broadcast)</label></div>
+    <div class="check"><input type="checkbox" id="wifiOpen"><label for="wifiOpen">Open network, no password</label></div>
+    <div class="row" id="passRow"><label for="wifiPass">Wi-Fi passphrase</label><input type="password" id="wifiPass" autocomplete="new-password"><div class="err" data-for="wifiPass"></div>
+      <div class="check" style="margin-top:6px"><input type="checkbox" id="showPass"><label for="showPass">Show passphrase</label></div></div>
+  </div>
+</fieldset>
+
+<fieldset><legend>Ethernet</legend>
+  <div class="row"><label for="ethMode">Mode</label>
+    <select id="ethMode"><option value="keep">Leave as is (DHCP)</option><option value="dhcp">DHCP, managed by netplan</option><option value="static">Static address</option></select></div>
+  <div id="ethBox" class="sub" hidden>
+    <div class="row"><label for="ethAddress">Address with prefix</label><input type="text" id="ethAddress" placeholder="192.168.1.50/24"><div class="err" data-for="ethAddress"></div></div>
+    <div class="cols">
+      <div class="row"><label for="ethGateway">Gateway</label><input type="text" id="ethGateway" placeholder="192.168.1.1"><div class="err" data-for="ethGateway"></div></div>
+      <div class="row"><label for="ethDns">DNS servers</label><input type="text" id="ethDns" placeholder="192.168.1.1, 9.9.9.9"><div class="err" data-for="ethDns"></div></div>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset><legend>System</legend>
+  <div class="cols">
+    <div class="row"><label for="hostname">Hostname</label><input type="text" id="hostname" placeholder="bobcat-01"><div class="err" data-for="hostname"></div></div>
+    <div class="row"><label for="timezone">Timezone</label><input type="text" id="timezone" list="tzs" placeholder="America/New_York"><datalist id="tzs"></datalist><div class="err" data-for="timezone"></div></div>
+  </div>
+  <div class="row"><label for="sshKeys">SSH public keys for root (one per line)</label><textarea id="sshKeys" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><div class="err" data-for="sshKeys"></div></div>
+  <div class="row"><label for="github">GitHub usernames allowed to log in as root</label><input type="text" id="github" placeholder="your-github-name, a-friend"><div class="err" data-for="github"></div><div class="status" id="ghStatus"></div>
+    <p class="hint">The node fetches the keys those accounts publish (<code>github.com/NAME.keys</code>) once, while installing.</p></div>
+  <div class="row"><label for="rootHash">Root password hash (optional)</label><input type="text" id="rootHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="rootHash"></div>
+    <p class="hint">A hash, never the password itself. Make one with <code>mkpasswd -m sha-512</code> or <code>openssl passwd -6</code>. Without it the image default (<code>1234</code>) stays, so prefer SSH keys.</p></div>
+  <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node)</label></div>
+</fieldset>
+
+<fieldset><legend>Radio <span style="font-weight:400;color:var(--mut)">(must match your other nodes)</span></legend>
+  <div class="cols">
+    <div class="row"><label for="frequencyMhz">Frequency (MHz)</label><input type="text" id="frequencyMhz" value="915" inputmode="decimal"><div class="err" data-for="frequency"></div></div>
+    <div class="row"><label for="bandwidth">Bandwidth</label><select id="bandwidth"><option value="125000" selected>125 kHz</option><option value="250000">250 kHz</option><option value="500000">500 kHz</option></select>
+      <p class="hint">The SX1302 cannot do 62.5 kHz.</p></div>
+    <div class="row"><label for="sf">Spreading factor</label><select id="sf"></select></div>
+    <div class="row"><label for="cr">Coding rate</label><select id="cr"><option value="5" selected>4/5</option><option value="6">4/6</option><option value="7">4/7</option><option value="8">4/8</option></select></div>
+    <div class="row"><label for="txpower">TX power (dBm)</label><select id="txpower"></select><p class="hint">Never transmit without an antenna connected.</p></div>
+  </div>
+</fieldset>
+
+<fieldset><legend>Reticulum</legend>
+  <div class="check"><input type="checkbox" id="transportOff"><label for="transportOff">Do not repeat other nodes' traffic (turn transport off)</label></div>
+  <div class="cols">
+    <div class="row"><label for="ifacName">IFAC network name</label><input type="text" id="ifacName"><div class="err" data-for="ifacName"></div></div>
+    <div class="row"><label for="ifacPass">IFAC passphrase</label><input type="password" id="ifacPass" autocomplete="new-password"><div class="err" data-for="ifacPass"></div></div>
+  </div>
+  <p class="hint" style="margin-top:-6px;margin-bottom:12px">Optional. Only nodes with the same name and passphrase will talk to this one.</p>
+  <div class="row"><label for="mode">Interface mode</label><select id="mode"><option>full</option><option>gateway</option><option>access_point</option><option>roaming</option><option>boundary</option><option>pointtopoint</option></select></div>
+  <div class="row"><label for="tcpClients">Connect to Reticulum TCP hubs (host:port, one per line)</label><textarea id="tcpClients" placeholder="hub.example.org:4242" spellcheck="false"></textarea><div class="err" data-for="tcpClients"></div></div>
+  <div class="row"><label for="tcpPort">Accept TCP connections on port</label><input type="text" id="tcpPort" inputmode="numeric" placeholder="none"><div class="err" data-for="tcpPort"></div><p class="hint">Opens that port on the node.</p></div>
+</fieldset>
+
+<fieldset><legend>Self-recovery</legend>
+  <div class="check"><input type="checkbox" id="recovery" checked><label for="recovery">Keep self-recovery on (persistent logs, hardware watchdog, network watchdog)</label></div>
+  <div class="row sub" id="rebootBox"><label for="reboot">Reboot after this many minutes without network (0 = never)</label><input type="text" id="reboot" value="20" inputmode="numeric"><div class="err" data-for="reboot"></div></div>
+</fieldset>
+</form>
+
+<aside class="side">
+  <div class="note"><strong>Your file contains secrets</strong> if you set a Wi-Fi passphrase. It stays on your computer; the node clears the passphrase from the SD card after a successful install.</div>
+  <div id="status" class="status"></div>
+  <pre id="out" aria-label="Generated bobcat-install.conf"></pre>
+  <div class="btns">
+    <button type="button" class="primary" id="dl">Download bobcat-install.conf</button>
+    <button type="button" id="copy">Copy</button>
+  </div>
+  <h2 style="font-size:1.05rem;margin:18px 0 4px">Then</h2>
+  <ol>
+    <li>Write <code>bobcat-g295-flasher.img.xz</code> from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a> to an SD card with <code>dd</code> or any imaging tool.</li>
+    <li>Copy the downloaded file onto the card's <strong>BOBCFG</strong> drive, keeping the exact name.</li>
+    <li>Put the card in the Bobcat and power on. When the LEDs flash quickly, power off and remove the card, then power on again.</li>
+  </ol>
+  <p class="hint">This erases the Bobcat's internal storage.</p>
+</aside>
+</div>
+
+<footer>Unofficial: not made by, affiliated with or endorsed by Bobcat, Bobber or Helium. <a href="https://github.com/nmadd57/bobcat-reticulum-node">Source and documentation</a>. The same file can be made with <code>tools/make-config.py</code>.</footer>
+</div>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const form = $("f");
+  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash",
+    "bandwidth", "sf", "cr", "txpower", "ifacName", "ifacPass", "mode", "tcpClients", "tcpPort", "reboot"];
+
+  // option lists
+  for (let n = 7; n <= 12; n++) $("sf").add(new Option("SF" + n, n, false, n === 8));
+  for (let n = 12; n <= 16; n++) $("txpower").add(new Option(n + " dBm", n, false, n === 14));
+  try {
+    const zones = (Intl.supportedValuesOf && Intl.supportedValuesOf("timeZone")) || [];
+    zones.forEach((z) => $("tzs").appendChild(Object.assign(document.createElement("option"), { value: z })));
+    const mine = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (mine && !$("timezone").value) $("timezone").placeholder = mine;
+  } catch (e) { /* the field still accepts typing */ }
+
+  function values() {
+    const v = { wifi: $("wifi").checked, wifiHidden: $("wifiHidden").checked, wifiOpen: $("wifiOpen").checked,
+      ethMode: $("ethMode").value, skipWizard: $("skipWizard").checked, transportOff: $("transportOff").checked,
+      recovery: $("recovery").checked };
+    FIELDS.forEach((k) => { v[k] = $(k).value; });
+    const mhz = $("frequencyMhz").value.trim();
+    v.frequency = /^\d+(\.\d+)?$/.test(mhz) ? String(Math.round(parseFloat(mhz) * 1e6)) : "x" + mhz;
+    return v;
+  }
+
+  let last = { text: "", errors: [], empty: true };
+  function update() {
+    $("wifiBox").hidden = !$("wifi").checked;
+    $("passRow").hidden = $("wifiOpen").checked;
+    $("ethBox").hidden = $("ethMode").value !== "static";
+    $("rebootBox").hidden = !$("recovery").checked;
+    last = BobcatConfig.build(values());
+    document.querySelectorAll(".err").forEach((e) => { e.textContent = ""; });
+    document.querySelectorAll(".invalid").forEach((e) => e.classList.remove("invalid"));
+    last.errors.forEach(({ field, message }) => {
+      const el = document.querySelector('.err[data-for="' + field + '"]');
+      if (el && !el.textContent) el.textContent = message;
+      const input = $(field === "frequency" ? "frequencyMhz" : field);
+      if (input) input.classList.add("invalid");
+    });
+    $("out").textContent = last.text;
+    const s = $("status");
+    const blocked = last.errors.length > 0 || last.empty;
+    s.className = "status " + (last.errors.length ? "bad" : last.empty ? "" : "ok");
+    s.textContent = last.errors.length ? last.errors.length + " thing(s) to fix before you can download"
+      : last.empty ? "Nothing set yet. The install still works with defaults and a network cable." : "Settings look valid.";
+    $("dl").disabled = blocked; $("copy").disabled = blocked;
+  }
+  form.addEventListener("input", update);
+  form.addEventListener("change", update);
+  form.addEventListener("submit", (e) => e.preventDefault());
+  $("showPass").addEventListener("change", () => { $("wifiPass").type = $("showPass").checked ? "text" : "password"; });
+
+  // Best effort: ask GitHub's API (which allows browser requests) whether the users exist and have keys.
+  let ghTimer;
+  $("github").addEventListener("input", () => {
+    clearTimeout(ghTimer);
+    const names = $("github").value.split(",").map((x) => x.trim()).filter(Boolean);
+    const st = $("ghStatus"); st.className = "status"; st.textContent = "";
+    if (!names.length || BobcatConfig.checks.github($("github").value)) return;
+    ghTimer = setTimeout(async () => {
+      const parts = [];
+      let bad = false;
+      for (const u of names) {
+        try {
+          const r = await fetch("https://api.github.com/users/" + encodeURIComponent(u) + "/keys");
+          if (r.status === 404) { parts.push(u + ": no such user"); bad = true; }
+          else if (!r.ok) { parts.push(u + ": could not check"); }
+          else { const k = await r.json(); if (!k.length) { parts.push(u + ": has no SSH keys"); bad = true; } else parts.push(u + ": " + k.length + " key(s)"); }
+        } catch (e) { parts.push(u + ": could not check (offline?)"); }
+      }
+      st.className = "status " + (bad ? "bad" : "ok"); st.textContent = parts.join(" · ");
+    }, 600);
+  });
+
+  $("dl").addEventListener("click", () => {
+    if (last.errors.length || last.empty) return;
+    const blob = new Blob([last.text], { type: "text/plain;charset=utf-8" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "bobcat-install.conf" });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  $("copy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(last.text); $("copy").textContent = "Copied"; }
+    catch (e) { $("copy").textContent = "Select the text and copy it"; }
+    setTimeout(() => { $("copy").textContent = "Copy"; }, 1800);
+  });
+  update();
+})();
+</script>
+</body>
+</html>

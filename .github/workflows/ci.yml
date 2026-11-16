@@ -46,6 +46,8 @@ jobs:
         run: python -m pytest -q
       - name: Partition tool and settings generator tests
         run: python -m pytest -q image/tools tools
+      - name: Web config generator against the installer's validator
+        run: node test/test-site-config.js
       - name: Installer settings tests (dry run, config parsing, saved settings)
         run: installer/test-installer.sh
       - name: First-boot script tests
