@@ -9,6 +9,12 @@ which does the parsing and validation:
 | `bobcat-install.conf` on the FAT boot partition of the standalone image | same idea for the SD-boot image |
 | `bobcat-g295-install.sh --config FILE`, or the options below | on a running unit |
 
+**Making the file:** `python3 tools/make-config.py` asks questions and writes it
+(`--help` for scripted use, e.g. `--set KEY=VALUE`); it works on Linux, macOS and
+Windows with plain Python 3. Its result is checked by the installer's own
+validator before it is written. You can also edit
+`image/firstboot/bobcat-install.conf.example` by hand.
+
 Options on the command line override the file. `--dry-run` shows the plan and
 the generated configs (secrets masked) without changing anything and without
 needing root. It is the quickest way to check a file.

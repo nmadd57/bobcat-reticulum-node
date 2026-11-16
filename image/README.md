@@ -12,18 +12,29 @@ file that you place next to the image when you flash it.
 
 ## Using the flasher (recommended)
 
-1. **Write the image to an SD card** (8 GB or larger) and **put your settings on
-   it**:
-   - Linux, one step: `tools/write-sd.sh --config my.conf bobcat-g295-flasher.img.xz /dev/sdX`
-     (checks `my.conf` first, refuses non-removable disks, asks you to retype the
-     device). Add `--keys`, `--netplan`, `--reticulum` for the other files.
-   - Windows or macOS: write the image with any imaging tool, then copy your
-     files onto the card's **BOBCFG** drive (a small FAT partition at the end).
-2. **Settings file:** copy [`firstboot/bobcat-install.conf.example`](firstboot/bobcat-install.conf.example)
-   to `bobcat-install.conf` and edit it. Every setting is optional; see
-   [`docs/config-reference.md`](../docs/config-reference.md). With Wi-Fi in the
-   file, **no network cable is needed**. Without any file the install still
-   works with defaults, but needs a wired network.
+1. **Make your settings file.** `python3 tools/make-config.py` asks a few
+   questions, checks the answers with the installer's own validator, and writes
+   `bobcat-install.conf`. Or copy
+   [`firstboot/bobcat-install.conf.example`](firstboot/bobcat-install.conf.example)
+   and edit it ([reference](../docs/config-reference.md)). Every setting is
+   optional. With Wi-Fi in the file **no network cable is needed**; without any
+   file the install still works with defaults but needs a wired network.
+2. **Write the image to an SD card** (8 GB or larger) the normal way, then **drop
+   the file on it**:
+   ```
+   xz -dc bobcat-g295-flasher.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+   ```
+   The card now has a small FAT partition at the end, **BOBCFG**, which Windows,
+   macOS and Linux all mount (re-plug the card if it does not appear). Copy
+   `bobcat-install.conf` onto it, with exactly that name, plus any of the optional
+   files listed in the README on that drive. On a card larger than the image,
+   Linux may log that the backup partition table is not at the end of the disk;
+   that is harmless, the partitions are read from the primary table.
+   **Windows and macOS:** the card also holds partitions they cannot read (the
+   bootloader area and an ext4 root). **Never accept an offer to format or
+   initialise those**; only the BOBCFG drive is yours to write to. Very old Windows
+   versions show only a card's first partition, in which case use Linux (or any
+   machine that shows BOBCFG) to add the file.
 3. **Flash:** power the Bobcat off, put the card in, power on. The LEDs stay on
    while it writes (a few minutes; the community flasher says up to ten). Do not
    interrupt it. **This erases the internal storage.**

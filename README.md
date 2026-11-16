@@ -73,21 +73,27 @@ journalctl -u rnsd-sx1302 -f
 ## Quick start: self-installing image
 
 The easiest way to set up a unit, including one with no network cable. Your
-Wi-Fi/network/system/radio settings go in a file that travels **next to** the
-image, so nothing secret is baked into it.
+Wi-Fi/network/system/radio settings go in a small file that you drop on the SD
+card next to the image, so nothing secret is baked into it.
 
 1. Get `bobcat-g295-flasher.img.xz` from a release (or run **Actions → Build images**).
-2. Copy [`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example)
-   to `bobcat-install.conf` and fill in what you need ([reference](docs/config-reference.md)).
-3. Write the SD card and add your file, on Linux in one step:
+2. Make your settings file with the questionnaire (or edit
+   [`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example)
+   by hand; [reference](docs/config-reference.md)):
    ```
-   tools/write-sd.sh --config bobcat-install.conf bobcat-g295-flasher.img.xz /dev/sdX
+   python3 tools/make-config.py          # asks questions, checks the answers, writes bobcat-install.conf
    ```
-   (on Windows/macOS write the image with any tool and copy the file onto the card's
-   **BOBCFG** drive).
-4. Power the Bobcat on with the card in. It flashes its internal storage, copying
-   your settings across; when the LEDs flash quickly, power off and remove the card.
-5. Power on again. First boot installs the node by itself and joins your Wi-Fi.
+3. Write the image to an SD card like any other image:
+   ```
+   xz -dc bobcat-g295-flasher.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+   ```
+   (or use any imaging tool). The card now has a small FAT partition, **BOBCFG**.
+4. Copy `bobcat-install.conf` onto the card's **BOBCFG** drive (re-plug the card if
+   it does not show up). Keep the exact file name.
+5. Put the card in the Bobcat and power on. It flashes its internal storage,
+   copying your settings across; when the LEDs flash quickly, power off and remove
+   the card.
+6. Power on again. First boot installs the node by itself and joins your Wi-Fi.
 
 **This erases the Bobcat's internal storage.** Details, the standalone SD
 variant and how it works: [`image/README.md`](image/README.md).
@@ -98,7 +104,7 @@ variant and how it works: [`image/README.md`](image/README.md).
 |---|---|
 | `installer/` | the self-extracting installer (template + builder) |
 | `image/` | first-boot service, flasher and image builders, partition tool |
-| `tools/` | `write-sd.sh`: write the SD card and your settings in one step |
+| `tools/` | `make-config.py`: questionnaire that writes your `bobcat-install.conf` |
 | `bobcat-g295/` | board profile, reset script, announce test, netplan examples |
 | `sx1302_rns/` | the Reticulum SX1302 interface (a modified copy of an MIT project) plus the vendored Semtech HAL |
 | `netboot/`, `maas/` | PXE / MAAS design notes (experimental) |

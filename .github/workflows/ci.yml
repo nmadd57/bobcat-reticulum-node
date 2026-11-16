@@ -23,7 +23,7 @@ jobs:
             image/lib.sh image/build-image.sh image/build-flasher.sh image/verify-flasher.sh \
             image/firstboot/bobcat-firstboot image/firstboot/test-firstboot.sh \
             image/flasher/init.sh image/flasher/test-init.sh \
-            tools/write-sd.sh bobcat-g295/reset_bobcat_g295.sh
+            bobcat-g295/reset_bobcat_g295.sh
 
   test:
     name: Tests
@@ -42,8 +42,8 @@ jobs:
       - name: Python tests (interface, framing, worker, HAL ABI)
         working-directory: sx1302_rns
         run: python -m pytest -q
-      - name: Partition tool tests
-        run: python -m pytest -q image/tools
+      - name: Partition tool and settings generator tests
+        run: python -m pytest -q image/tools tools
       - name: Installer settings tests (dry run, config parsing, saved settings)
         run: installer/test-installer.sh
       - name: First-boot script tests

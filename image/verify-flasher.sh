@@ -6,13 +6,12 @@
 #   sudo image/verify-flasher.sh dist/bobcat-g295-flasher.img.xz
 #
 # It decompresses the image, validates the partition table with two independent
-# tools, mounts the BOBCFG partition and checks it, and exercises tools/write-sd.sh
-# against a copy.
+# tools, mounts the BOBCFG partition and checks it, then does what a user does:
+# drops a settings file on it and reads it back.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"
 SRC="${1:?usage: verify-flasher.sh IMAGE.img.xz}"
 WORK="$(mktemp -d)"
 LOOP=""
@@ -65,21 +64,26 @@ ok "flasher root filesystem mounts; /init.sh and the OS image are present"
 umount "$WORK/mnt"
 losetup -d "$LOOP"; LOOP=""
 
-# 4. tools/write-sd.sh against a copy: settings must land on BOBCFG
-printf 'HOSTNAME=ci-test\n' > "$WORK/my.conf"
-printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest ci@test\n' > "$WORK/keys.pub"
-"$ROOT/tools/write-sd.sh" --yes --config "$WORK/my.conf" --keys "$WORK/keys.pub" "$WORK/f.img" "$WORK/copy.img" > "$WORK/write.out" 2>&1 ||
-    { cat "$WORK/write.out"; fail "tools/write-sd.sh failed"; }
-LOOP="$(losetup -fP --show "$WORK/copy.img")"
+# 4. What a user does: write the image (a plain copy here, dd on a real card),
+#    mount the BOBCFG partition, drop a settings file on it, and read it back.
+cp "$WORK/f.img" "$WORK/card.img"
+LOOP="$(losetup -fP --show "$WORK/card.img")"
+for _ in $(seq 1 20); do [[ -b "${LOOP}p7" ]] && break; sleep 0.5; done
+mount -t vfat "${LOOP}p7" "$WORK/mnt"
+printf 'HOSTNAME=ci-test\r\nFREQUENCY=915000000\r\n' > "$WORK/my.conf"
+cp "$WORK/my.conf" "$WORK/mnt/bobcat-install.conf"
+sync
+umount "$WORK/mnt"
+losetup -d "$LOOP"; LOOP=""
+LOOP="$(losetup -fP --show "$WORK/card.img")"
 for _ in $(seq 1 20); do [[ -b "${LOOP}p7" ]] && break; sleep 0.5; done
 mount -t vfat -o ro "${LOOP}p7" "$WORK/mnt"
-cmp "$WORK/my.conf" "$WORK/mnt/bobcat-install.conf" || fail "bobcat-install.conf differs after write-sd.sh"
-cmp "$WORK/keys.pub" "$WORK/mnt/bobcat-authorized_keys" || fail "bobcat-authorized_keys differs after write-sd.sh"
-ok "tools/write-sd.sh put the settings on BOBCFG byte for byte"
+cmp "$WORK/my.conf" "$WORK/mnt/bobcat-install.conf" || fail "the settings file changed on the card"
+ok "a settings file dropped on BOBCFG survives and reads back byte for byte"
+# The flasher looks files up by exact name on a case-insensitive FAT: a name typed
+# with different capitals (as Windows or macOS may store it) must still resolve.
+[[ -f "$WORK/mnt/BOBCAT-INSTALL.CONF" ]] && ok "names resolve case-insensitively" || fail "FAT lookup is not case-insensitive"
 umount "$WORK/mnt"
-printf 'bogus line without equals\nFREQUENCY=12\n' > "$WORK/bad.conf"
-if "$ROOT/tools/write-sd.sh" --yes --config "$WORK/bad.conf" "$WORK/f.img" "$WORK/bad.img" > "$WORK/bad.out" 2>&1; then
-    fail "write-sd.sh accepted an invalid settings file"
-fi
-[[ ! -e "$WORK/bad.img" ]] && ok "write-sd.sh refuses an invalid settings file before writing anything"
+fsck.vfat -n "${LOOP}p7" > "$WORK/fsck2.out" 2>&1 || { cat "$WORK/fsck2.out"; fail "fsck.vfat found problems after writing a file"; }
+ok "BOBCFG is still clean after a file was added"
 echo "flasher verification passed"
