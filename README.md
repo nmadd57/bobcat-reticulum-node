@@ -23,7 +23,7 @@ the SD card next to the image, so nothing secret is baked into it and no network
 is needed.
 
 1. Get `bobcat-g295-flasher.img.xz` from a release (or run **Actions → Build images**).
-2. Make your settings file with the [**web config generator**](https://nmadd57.github.io/bobcat-reticulum-node/)
+2. Make your settings file with the [**web config generator**](https://bobcat.galaxyone.space/)
    (it runs in your browser; nothing is sent anywhere), or with the questionnaire (or edit
    [`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example)
    by hand; [reference](docs/config-reference.md)):

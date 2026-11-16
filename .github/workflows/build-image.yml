@@ -5,8 +5,10 @@ name: Build images
 #            across (recommended for G290/G295)
 #   sd:      standalone image that boots from the SD card
 #
-# Run manually (Actions tab -> Build images -> Run workflow), or push a version
-# tag (v1.0.0) to build both and attach them to a release.
+# Run manually (Actions tab -> Build images -> Run workflow), push a version
+# tag (v1.0.0) to build both and attach them to a release, or let the weekly
+# schedule rebuild both (flasher kept as an artifact for 14 days) so a change in
+# the base image, an action or a package shows up as a failed run, not at release.
 #
 # The base images are third-party builds; keep this repository private unless
 # their license allows redistribution.
@@ -28,6 +30,8 @@ on:
         default: "6"
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "17 5 * * 1"   # Mondays 05:17 UTC
 
 permissions:
   contents: write   # attach files to a release on tags
@@ -81,7 +85,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
-        if: github.event_name == 'push' || github.event.inputs.upload_artifact == 'true'
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.upload_artifact == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bobcat-g295-flasher
