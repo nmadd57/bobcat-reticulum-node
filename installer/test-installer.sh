@@ -331,6 +331,34 @@ out="$(callr setup_resilience)"; rc=$?
 mv "$T/prefix/resilience.away" "$T/prefix/bobcat-g295/resilience"
 unset BOBCAT_SYSTEMD_DIR BOBCAT_SBIN_DIR BOBCAT_SYSCTL_DIR BOBCAT_WATCHDOG_DEV
 
+# ------------------------------------------------- internet needed? checked first
+# Stubs stand in for the system state: what is installed, and whether the net answers.
+inet() {   # inet <body>: run <body> with net_ok/missing_packages/venv overridable
+    call 'wait_for() { shift; "$@"; }; '"$1" "${@:2}"
+}
+mkdir -p "$T/prefix/venv/bin"
+out="$(inet 'missing_packages() { :; }; net_ok() { return 1; }; internet_needs() { :; }; precheck_internet')"; rc=$?
+check "internet: not needed -> no check, no failure" "$rc" 0
+has   "internet: says so" "nothing here needs the internet" "$out"
+out="$(inet 'missing_packages() { echo gcc; }; net_ok() { return 1; }; internet_needs() { echo "installing system packages"; }; precheck_internet')"; rc=$?
+[[ "$rc" -ne 0 && "$out" == *"needs internet access for: installing system packages"* ]] && ok "internet: needed but absent stops the install before any change" || bad "internet: needed but absent" "$out"
+has   "internet: and explains a gateway that answers is not enough" "a gateway that answers is not enough" "$out"
+has   "internet: and says nothing was changed" "nothing was changed" "$out"
+out="$(inet 'net_ok() { return 0; }; internet_needs() { echo "installing Reticulum from PyPI"; }; precheck_internet')"; rc=$?
+check "internet: needed and present passes" "$rc" 0
+out="$(inet 'missing_packages() { :; }; net_ok() { return 1; }; precheck_internet' --ssh-github-user alice)"; rc=$?
+[[ "$rc" -ne 0 && "$out" == *"fetching SSH keys from GitHub"* ]] && ok "internet: GitHub keys count as needing it" || bad "internet: GitHub keys" "$out"
+out="$(inet 'missing_packages() { :; }; internet_needs')"
+has   "internet: a venv without Reticulum needs PyPI" "installing Reticulum from PyPI" "$out"
+# a stand-in interpreter: exit status 0 = "Reticulum importable and registered here"
+printf '#!/bin/sh\nexit 0\n' > "$T/prefix/venv/bin/python"; chmod +x "$T/prefix/venv/bin/python"
+out="$(inet 'missing_packages() { :; }; internet_needs')"
+check "internet: an installed, registered venv needs nothing" "$out" ""
+printf '#!/bin/sh\nexit 1\n' > "$T/prefix/venv/bin/python"
+out="$(inet 'missing_packages() { :; }; internet_needs')"
+has   "internet: registered somewhere else counts as needing a reinstall" "installing Reticulum from PyPI" "$out"
+rm -f "$T/prefix/venv/bin/python"
+
 # ------------------------------------------------------- GitHub public keys
 # A fake GitHub on localhost serves /<user>.keys; anything else is a 404.
 KEYA='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIalice1 alice@laptop'

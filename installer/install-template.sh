@@ -859,14 +859,57 @@ setup_os() {
 # System packages
 # ---------------------------------------------------------------------------
 
+# Print the packages this install still needs from apt, one per line.
+missing_packages() {
+    have gcc     || echo gcc
+    have make    || echo make
+    have patch   || echo patch
+    have gpioset || echo gpiod
+    python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || echo python3-venv
+    python3 -m pip --version >/dev/null 2>&1 || echo python3-pip
+}
+
+# Is Reticulum installed in the venv, and is this code directory registered as the
+# package? The registration is an editable install (a link to the directory), so
+# once it points here, new code needs no reinstall and no network.
+python_ready() {
+    "$PREFIX/venv/bin/python" - "$PREFIX/sx1302_rns" >/dev/null 2>&1 <<'PY'
+import os, sys
+import RNS
+import sx1302_reticulum
+here = os.path.dirname(os.path.dirname(sx1302_reticulum.__file__))
+sys.exit(0 if os.path.realpath(here) == os.path.realpath(sys.argv[1]) else 1)
+PY
+}
+
+# Does anything this run does need the internet? Prints the reasons.
+internet_needs() {
+    [[ ${#OPT_GH_USERS[@]} -eq 0 ]] || echo "fetching SSH keys from GitHub"
+    [[ -z "$(missing_packages)" ]] || echo "installing system packages"
+    python_ready || echo "installing Reticulum from PyPI"
+}
+
+# Fail early, before anything on the node is changed, when the install needs the
+# internet and there is none (for example a Wi-Fi network that only reaches the
+# local network).
+precheck_internet() {
+    local needs
+    needs="$(internet_needs)"
+    [[ -n "$needs" ]] || { note "nothing here needs the internet"; return 0; }
+    if wait_for 40 net_ok; then
+        note "internet reachable"
+        return 0
+    fi
+    warn "this install needs internet access for: $(tr '\n' ',' <<<"$needs" | sed 's/,$//; s/,/, /g')"
+    warn "but there is no route to the internet from this node (a gateway that answers is not enough)"
+    note "a Wi-Fi network that only reaches the local network cannot install a node; use one that"
+    note "has internet access for the install. An already-installed node keeps working without it."
+    fail "no internet access; nothing was changed"
+}
+
 install_packages() {
     local missing=() pkg
-    have gcc     || missing+=(gcc)
-    have make    || missing+=(make)
-    have patch   || missing+=(patch)
-    have gpioset || missing+=(gpiod)
-    python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || missing+=(python3-venv)
-    python3 -m pip --version >/dev/null 2>&1 || missing+=(python3-pip)
+    mapfile -t missing < <(missing_packages)
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         log "Installing packages: ${missing[*]}"
@@ -898,10 +941,9 @@ install_packages() {
 
 install_code() {
     log "Installing code to $PREFIX"
-    if systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
-        note "stopping running $SERVICE"
-        systemctl stop "$SERVICE"
-    fi
+    # A running service is left alone until the new code is ready: install_service
+    # restarts it at the end. Stopping it first would take the node down for the
+    # whole install, and leave it down if a step in the middle fails.
     extract_payload "$PREFIX"
     chmod +x "$PREFIX/bobcat-g295/reset_bobcat_g295.sh" \
              "$PREFIX/bobcat-g295/announce_test.py" \
@@ -909,8 +951,12 @@ install_code() {
 
     log "Python environment"
     [[ -x "$PREFIX/venv/bin/python" ]] || python3 -m venv "$PREFIX/venv"
-    "$PREFIX/venv/bin/pip" install --quiet "rns>=1.5.7,<2"
-    "$PREFIX/venv/bin/pip" install --quiet --no-deps -e "$PREFIX/sx1302_rns"
+    if python_ready; then
+        note "Reticulum and the interface package are already installed here"
+    else
+        "$PREFIX/venv/bin/pip" install --quiet "rns>=1.5.7,<2"
+        "$PREFIX/venv/bin/pip" install --quiet --no-deps -e "$PREFIX/sx1302_rns"
+    fi
     "$PREFIX/venv/bin/python" -c 'import RNS, sx1302_reticulum; print("    RNS", RNS.__version__)'
 
     log "Building the SX1302 HAL (about a minute)"
@@ -1300,6 +1346,8 @@ main() {
         log "Network step finished (--network-only)"
         return 0
     fi
+    log "Checking what this install needs"
+    precheck_internet
     setup_os
     install_packages
     install_code

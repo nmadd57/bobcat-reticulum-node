@@ -45,6 +45,13 @@ minutes:
   (the three recovery steps still run).
 - Everything it does is in the journal: `journalctl -t bobcat-netwatch`.
 
+## What it does not need
+The network watchdog pings the **default gateway**, not the internet, on purpose: a
+Wi-Fi network without internet access (an isolated IoT network, say) is still a working
+link for a node, and must not make it reboot. If you set `NETWATCH_TARGET`, choose
+something that is reachable on that network, never an internet address unless the
+network really provides it.
+
 ## Settings
 | Key | Option | Default | Meaning |
 |---|---|---|---|

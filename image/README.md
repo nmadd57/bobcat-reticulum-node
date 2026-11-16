@@ -41,6 +41,12 @@ file that you place next to the image when you flash it.
 4. **Done flashing:** the LEDs flash quickly in a repeating pattern, as with the
    community flasher. A **slow, even blink** instead means the OS was written but
    the settings could not be copied (see below). Power off and remove the card.
+   **The Wi-Fi network must have internet access.** The install downloads packages
+   (apt, PyPI), may fetch SSH keys from GitHub, and syncs the clock. A network that
+   only reaches your local network (an isolated IoT VLAN, for example) lets the unit
+   join but not install. The installer checks first and stops with a clear message
+   before changing anything; first boot retries every two minutes, so fixing the
+   network is enough. Once installed, a node runs without internet access.
 5. **First boot** from the eMMC: the system waits for the clock to sync, then
    installs the node (several minutes, using the network from your settings) and
    starts the Reticulum service. Follow it with `journalctl -u bobcat-firstboot -f`

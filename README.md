@@ -95,6 +95,8 @@ card next to the image, so nothing secret is baked into it.
    the card.
 6. Power on again. First boot installs the node by itself and joins your Wi-Fi.
 
+**The Wi-Fi network needs internet access** for the install (packages, clock, optional GitHub keys); a network that only reaches the local network cannot install a node (the installer says so before changing anything). A running node does not need internet.
+
 **This erases the Bobcat's internal storage.** Details, the standalone SD
 variant and how it works: [`image/README.md`](image/README.md).
 
