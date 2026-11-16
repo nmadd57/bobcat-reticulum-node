@@ -32,6 +32,10 @@ set -euo pipefail
 PREFIX="${BOBCAT_PREFIX:-/opt/bobcat-lora}"
 CONFIGDIR="${BOBCAT_RETICULUM_DIR:-/etc/reticulum}"
 STATEDIR="${BOBCAT_STATE_DIR:-/etc/bobcat-lora}"
+SSH_DIR="${BOBCAT_SSH_DIR:-/root/.ssh}"
+# A plain public key line: type, base64 blob, optional comment. Options such as
+# command="..." in front are deliberately not accepted.
+SSH_KEY_RE='^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$'
 SERVICE="rnsd-sx1302"
 PROFILE="$PREFIX/bobcat-g295/bobcat-g295-us915.conf"
 
@@ -50,7 +54,7 @@ OPT_WIFI_HIDDEN=0 OPT_WIFI_OPEN=0 OPT_NETPLAN_FILE="" OPT_NO_APPLY=0
 OPT_ETH_MODE="" OPT_ETH_ADDR="" OPT_ETH_GW="" OPT_ETH_DNS=""
 OPT_NETWORK_ONLY=0 OPT_REVERT_SECS=180
 # Operating system
-OPT_HOSTNAME="" OPT_TIMEZONE="" OPT_SSH_KEYS="" OPT_SSH_KEYS_FILE=""
+OPT_HOSTNAME="" OPT_TIMEZONE="" OPT_SSH_KEYS="" OPT_SSH_KEYS_FILE="" OPT_GH_USERS=()
 OPT_ROOT_HASH="" OPT_SKIP_WIZARD=0
 
 SERVICE_STARTED_AT=""
@@ -117,6 +121,10 @@ Operating system:
   --hostname NAME       set the hostname
   --timezone ZONE       e.g. America/New_York
   --ssh-key-file F      add the public keys in F to root's authorized_keys
+  --ssh-github-user U   also add the public keys GitHub publishes for user U
+                        (https://github.com/U.keys), fetched at install time;
+                        repeatable. The install stops if U does not exist or has
+                        no usable keys, rather than leave you without access
   --root-password-hash H   set root's password from a crypt(3) hash (mkpasswd -m sha-512)
   --skip-first-login-wizard   remove Armbian's interactive first-login prompt
 
@@ -163,6 +171,7 @@ apply_config_key() {
         TIMEZONE)             OPT_TIMEZONE="$val" ;;
         SSH_AUTHORIZED_KEY)   [[ -z "$val" ]] || OPT_SSH_KEYS+="$val"$'\n' ;;
         SSH_AUTHORIZED_KEYS_FILE) OPT_SSH_KEYS_FILE="$(abs_path "$val" "$base")" ;;
+        SSH_GITHUB_USER)      [[ -z "$val" ]] || OPT_GH_USERS+=("$val") ;;
         ROOT_PASSWORD_HASH)   OPT_ROOT_HASH="$val" ;;
         SKIP_FIRSTLOGIN_WIZARD) OPT_SKIP_WIZARD="$(to_bool "$val")" ;;
         FREQUENCY)            OPT_FREQ="$val" ;;
@@ -259,6 +268,7 @@ while [[ $# -gt 0 ]]; do
         --hostname)        need "$@"; OPT_HOSTNAME="$2"; shift 2 ;;
         --timezone)        need "$@"; OPT_TIMEZONE="$2"; shift 2 ;;
         --ssh-key-file)    need "$@"; OPT_SSH_KEYS_FILE="$2"; shift 2 ;;
+        --ssh-github-user) need "$@"; OPT_GH_USERS+=("$2"); shift 2 ;;
         --root-password-hash) need "$@"; OPT_ROOT_HASH="$2"; shift 2 ;;
         --skip-first-login-wizard) OPT_SKIP_WIZARD=1; shift ;;
         -h|--help)         usage; exit 0 ;;
@@ -380,9 +390,13 @@ validate_options() {
     fi
     while IFS= read -r line; do
         [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ "$line" =~ ^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$ ]] ||
+        [[ "$line" =~ $SSH_KEY_RE ]] ||
             fail "an SSH key line is not a plain public key (options such as command= are not accepted)"
     done <<< "$OPT_SSH_KEYS"
+    for value in "${OPT_GH_USERS[@]+"${OPT_GH_USERS[@]}"}"; do
+        [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ && "$value" != *--* ]] ||
+            fail "'$value' is not a valid GitHub username (letters, digits, single hyphens, up to 39 characters)"
+    done
 }
 
 validate_options
@@ -685,13 +699,76 @@ EOF
 # ---------------------------------------------------------------------------
 
 wants_os_settings() {
-    [[ -n "$OPT_HOSTNAME$OPT_TIMEZONE$OPT_SSH_KEYS$OPT_ROOT_HASH" || "$OPT_SKIP_WIZARD" -eq 1 ]]
+    [[ -n "$OPT_HOSTNAME$OPT_TIMEZONE$OPT_SSH_KEYS$OPT_ROOT_HASH" || "$OPT_SKIP_WIZARD" -eq 1 ||
+       ${#OPT_GH_USERS[@]} -gt 0 ]]
+}
+
+# Print the public keys GitHub publishes for a user. Exit status: 0 ok, 3 no such
+# user, 4 GitHub could not be reached. The base URL can be overridden for tests.
+fetch_github_keys() {
+    G_USER="$1" G_BASE="${BOBCAT_GITHUB_URL:-https://github.com}" G_DELAY="${BOBCAT_GITHUB_RETRY_DELAY:-2}" python3 - <<'PY'
+import os, sys, time, urllib.error, urllib.request
+
+url = f"{os.environ['G_BASE']}/{os.environ['G_USER']}.keys"
+err = "unknown error"
+for attempt in range(3):
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "bobcat-reticulum-node"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            sys.stdout.write(resp.read().decode("utf-8", "replace"))
+            sys.exit(0)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            sys.exit(3)
+        err = f"HTTP {exc.code}"
+    except Exception as exc:          # DNS, TLS (wrong clock), timeout, reset
+        err = str(exc)
+    time.sleep(float(os.environ["G_DELAY"]) * (attempt + 1))
+print(err, file=sys.stderr)
+sys.exit(4)
+PY
+}
+
+# Add the keys GitHub publishes for $1 to authorized_keys, skipping duplicates.
+# Stops the install if the keys cannot be had: carrying on would leave a node
+# the caller expects to reach with a key it does not have.
+add_github_keys() {
+    local user="$1" keys rc=0 line added=0 valid=0
+    keys="$(fetch_github_keys "$user")" || rc=$?
+    case "$rc" in
+        0) ;;
+        3) fail "GitHub user '$user' was not found (${BOBCAT_GITHUB_URL:-https://github.com}/$user.keys gave 404): check the name" ;;
+        *) fail "could not reach GitHub to fetch the keys of '$user'; will be retried" ;;
+    esac
+    printf '# keys published by GitHub user %s, fetched %s\n' "$user" "$(date -u +%Y-%m-%d)" >> "$SSH_DIR/authorized_keys.new"
+    while IFS= read -r line; do
+        line="${line%$'\r'}"
+        [[ -n "$line" ]] || continue
+        if [[ "$line" =~ $SSH_KEY_RE ]]; then
+            valid=$((valid + 1))
+            if ! grep -qxF -- "$line" "$SSH_DIR/authorized_keys"; then
+                printf '%s\n' "$line" >> "$SSH_DIR/authorized_keys.new"
+                added=$((added + 1))
+            fi
+        else
+            warn "ignoring a line from GitHub's keys for '$user' that is not a plain public key"
+        fi
+    done <<< "$keys"
+    if [[ "$valid" -eq 0 ]]; then
+        rm -f "$SSH_DIR/authorized_keys.new"
+        fail "GitHub user '$user' has no usable SSH public keys"
+    fi
+    if [[ "$added" -gt 0 ]]; then
+        cat "$SSH_DIR/authorized_keys.new" >> "$SSH_DIR/authorized_keys"
+    fi
+    rm -f "$SSH_DIR/authorized_keys.new"
+    note "SSH keys from GitHub user $user: $added added ($valid found)"
 }
 
 setup_os() {
     wants_os_settings || return 0
     log "System settings"
-    local key
+    local key user
 
     if [[ -n "$OPT_HOSTNAME" ]]; then
         if [[ "$(hostname)" != "$OPT_HOSTNAME" ]]; then
@@ -711,20 +788,25 @@ setup_os() {
         note "timezone: $OPT_TIMEZONE"
     fi
 
+    if [[ -n "$OPT_SSH_KEYS" || ${#OPT_GH_USERS[@]} -gt 0 ]]; then
+        install -d -m 700 "$SSH_DIR"
+        touch "$SSH_DIR/authorized_keys"
+        chmod 600 "$SSH_DIR/authorized_keys"
+    fi
     if [[ -n "$OPT_SSH_KEYS" ]]; then
-        install -d -m 700 /root/.ssh
-        touch /root/.ssh/authorized_keys
-        chmod 600 /root/.ssh/authorized_keys
         local added=0
         while IFS= read -r key; do
             [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
-            if ! grep -qxF -- "$key" /root/.ssh/authorized_keys; then
-                printf '%s\n' "$key" >> /root/.ssh/authorized_keys
+            if ! grep -qxF -- "$key" "$SSH_DIR/authorized_keys"; then
+                printf '%s\n' "$key" >> "$SSH_DIR/authorized_keys"
                 added=$((added + 1))
             fi
         done <<< "$OPT_SSH_KEYS"
         note "SSH keys: $added added to root's authorized_keys"
     fi
+    for user in "${OPT_GH_USERS[@]+"${OPT_GH_USERS[@]}"}"; do
+        add_github_keys "$user"
+    done
 
     if [[ -n "$OPT_ROOT_HASH" ]]; then
         printf 'root:%s\n' "$OPT_ROOT_HASH" | chpasswd -e
@@ -1052,6 +1134,11 @@ print_plan() {
     echo "hostname:      ${OPT_HOSTNAME:-unchanged}"
     echo "timezone:      ${OPT_TIMEZONE:-unchanged}"
     echo "ssh keys:      $(printf '%s' "$OPT_SSH_KEYS" | grep -cvE '^[[:space:]]*(#|$)' || true)"
+    if [[ ${#OPT_GH_USERS[@]} -gt 0 ]]; then
+        echo "github keys:   ${OPT_GH_USERS[*]} (fetched at install time)"
+    else
+        echo "github keys:   none"
+    fi
     echo "root password: $([[ -n $OPT_ROOT_HASH ]] && echo 'will be set from the hash' || echo unchanged)"
     echo "first-login wizard: $([[ $OPT_SKIP_WIZARD -eq 1 ]] && echo 'will be skipped' || echo untouched)"
 

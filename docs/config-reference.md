@@ -58,11 +58,26 @@ netplan file is refused (netplan would reject it or silently merge it).
 | `TIMEZONE` | `--timezone` | e.g. `Europe/Berlin` |
 | `SSH_AUTHORIZED_KEY` | | a public key line (*repeatable*) |
 | `SSH_AUTHORIZED_KEYS_FILE` | `--ssh-key-file` | a file of public keys, added to root's `authorized_keys` without duplicates |
+| `SSH_GITHUB_USER` | `--ssh-github-user` | add the public keys GitHub publishes for this user (`https://github.com/NAME.keys`); *repeatable* |
 | `ROOT_PASSWORD_HASH` | `--root-password-hash` | a crypt(3) hash (`mkpasswd -m sha-512`); plain text is refused |
 | `SKIP_FIRSTLOGIN_WIZARD` | `--skip-first-login-wizard` | removes Armbian's interactive first-login prompt |
 
 The community image ships with root password `1234` and the first-login prompt,
 so for an unattended node set a password hash or SSH key.
+
+**Keys from GitHub.** With `SSH_GITHUB_USER=alice` the installer downloads
+`https://github.com/alice.keys` once, while installing, and adds every plain public key
+in it to root's `authorized_keys` (duplicates are skipped; keys with options such as
+`command=` are ignored). Things to know:
+- It needs internet at install time, and a correct clock (the first boot waits for time sync).
+- It is a one-time copy: adding or removing a key on GitHub later does not change the
+  node. Re-run the installer to refresh.
+- If the user does not exist, has no usable keys, or GitHub cannot be reached, **the install
+  stops** (and, on first boot, tries again) instead of carrying on without the access you
+  asked for. A typo is therefore found early: `tools/make-config.py` looks the name up
+  on your computer before writing the file and shows each key's fingerprint, so you can
+  check they are yours.
+- The names are validated as GitHub usernames; anything else is rejected.
 
 ### Radio
 | Key | Option | Meaning |
@@ -126,6 +141,7 @@ WIFI_SSID=HomeNet
 WIFI_PASS=correct horse battery
 HOSTNAME=bobcat-attic
 SSH_AUTHORIZED_KEY=ssh-ed25519 AAAAC3Nza... me@laptop
+SSH_GITHUB_USER=my-github-name
 SKIP_FIRSTLOGIN_WIZARD=yes
 ```
 

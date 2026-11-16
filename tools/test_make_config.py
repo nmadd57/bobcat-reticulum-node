@@ -1,9 +1,14 @@
 """Tests for make-config.py. The installer's own parser is the judge of every file."""
 
+import base64
+import functools
+import hashlib
+import http.server
 import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -13,6 +18,29 @@ TOOL = HERE / "make-config.py"
 INSTALLER = HERE.parent / "installer" / "install-template.sh"
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="bash needed")
+
+
+# ------------------------------------------------------------------ fake GitHub
+BLOB = base64.b64encode(b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + bytes(range(32))).decode()
+EXPECTED_FP = "SHA256:" + base64.b64encode(hashlib.sha256(base64.b64decode(BLOB)).digest()).decode().rstrip("=")
+
+
+@pytest.fixture
+def github(tmp_path):
+    """A local stand-in for github.com that serves /<user>.keys (404 otherwise)."""
+    root = tmp_path / "gh"
+    root.mkdir()
+    (root / "alice.keys").write_text(f"ssh-ed25519 {BLOB} alice@laptop\n")
+    (root / "empty.keys").write_text("")
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=str(root)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
 
 
 def run(*args, stdin=None, cwd=None, env_extra=None, home=None):
@@ -126,6 +154,7 @@ def test_root_password_becomes_a_hash_the_installer_accepts(tmp_path):
         "",             # Ethernet: keep
         "", "",         # hostname, timezone
         "",             # pasted key
+        "",             # GitHub users
         "y",            # set a root password
         "s3cret-pw",    # the password (not a tty: read from stdin)
         "y",            # skip first-login prompt
@@ -152,6 +181,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
         "bobcat-yard",         # hostname
         "Europe/Berlin",       # timezone
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest me@laptop",   # pasted key
+        "",                    # GitHub users
         "n",                   # root password
         "y",                   # skip first-login prompt
         "y",                   # change radio
@@ -178,7 +208,78 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
 
 def test_questionnaire_reprompts_on_a_bad_answer(tmp_path):
     answers = "\n".join(["y", "Net", "n", "n", "short", "longenough1",   # passphrase: too short, then ok
-                         "keep", "", "", "", "n", "y", "n", "n", "n", "", "n", ""]) + "\n"
+                         "keep", "", "", "", "", "n", "y", "n", "n", "n", "", "n", ""]) + "\n"
     r = run("-o", str(tmp_path / "c.conf"), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert "8 to 63 characters" in r.stdout
+
+
+def test_github_user_is_verified_and_written(tmp_path, github):
+    out = tmp_path / "c.conf"
+    r = run("--ssh-github-user", "alice", "-o", str(out), cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": github})
+    assert r.returncode == 0, r.stderr
+    assert "SSH_GITHUB_USER=alice" in out.read_text()
+    assert EXPECTED_FP in r.stderr            # the fingerprint is shown so you can recognise your key
+    assert "ssh-ed25519" in r.stderr
+    assert installer_view(out, "OPT_GH_USERS[*]") == ["alice"]
+
+
+def test_unknown_github_user_is_refused(tmp_path, github):
+    out = tmp_path / "c.conf"
+    r = run("--ssh-github-user", "nosuchuser", "-o", str(out), cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": github})
+    assert r.returncode != 0 and "no user 'nosuchuser'" in r.stderr
+    assert not out.exists()
+
+
+def test_github_user_without_keys_is_refused(tmp_path, github):
+    r = run("--ssh-github-user", "empty", "-o", "-", cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": github})
+    assert r.returncode != 0 and "no SSH public keys" in r.stderr
+
+
+def test_unreachable_github_warns_but_still_writes(tmp_path):
+    out = tmp_path / "c.conf"
+    r = run("--ssh-github-user", "alice", "-o", str(out), cwd=tmp_path,
+            env_extra={"BOBCAT_GITHUB_URL": "http://127.0.0.1:1"})
+    assert r.returncode == 0, r.stderr
+    assert "could not reach GitHub" in r.stderr and "SSH_GITHUB_USER=alice" in out.read_text()
+
+
+def test_no_github_check_skips_the_lookup(tmp_path):
+    r = run("--ssh-github-user", "whoever", "--no-github-check", "-o", "-", cwd=tmp_path,
+            env_extra={"BOBCAT_GITHUB_URL": "http://127.0.0.1:1"})
+    assert r.returncode == 0 and "SSH_GITHUB_USER=whoever" in r.stdout
+    assert "could not reach" not in r.stderr
+
+
+def test_bad_github_names_are_rejected_before_any_lookup(tmp_path):
+    for bad in ("-x", "x-", "a--b", "../etc", "has space", "a" * 40):
+        r = run(f"--ssh-github-user={bad}", "-o", "-", cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": "http://127.0.0.1:1"})
+        assert r.returncode != 0 and "GitHub username" in r.stderr, bad
+
+
+def test_several_github_users_and_other_keys_together(tmp_path, github):
+    keys = tmp_path / "k.pub"
+    keys.write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImine mine@host\n")
+    r = run("--ssh-github-user", "alice", "--ssh-github-user", "alice", "--ssh-key-file", str(keys), "-o", "-",
+            cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": github})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.count("SSH_GITHUB_USER=alice") == 2 and "SSH_AUTHORIZED_KEY=ssh-ed25519" in r.stdout
+
+
+def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, github):
+    answers = "\n".join([
+        "n",                          # Wi-Fi
+        "",                           # Ethernet keep
+        "", "",                       # hostname, timezone
+        "",                           # pasted key
+        "nosuchuser",                 # GitHub: does not exist -> asked again
+        "alice",                      # GitHub: fine
+        "n", "y",                     # root password no, skip first-login yes
+        "n", "n", "n", "", "n", "",   # radio, transport, IFAC, mode, hub, server
+    ]) + "\n"
+    out = tmp_path / "c.conf"
+    r = run("-o", str(out), stdin=answers, cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": github})
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "no user 'nosuchuser'" in r.stdout and "Please try again" in r.stdout
+    assert EXPECTED_FP in r.stdout
+    assert out.read_text().count("SSH_GITHUB_USER=alice") == 1 and "nosuchuser" not in out.read_text()

@@ -19,14 +19,18 @@ prompt, --wifi-pass-file, or the BOBCAT_WIFI_PASS environment variable.
 """
 
 import argparse
+import base64
 import datetime
 import getpass
+import hashlib
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -85,6 +89,12 @@ def v_wifi_pass(v):
         return "8 to 63 characters"
 
 
+def v_github(v):
+    for user in v.replace(" ", "").split(","):
+        if user and not (re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?", user) and "--" not in user):
+            return f"'{user}' is not a GitHub username"
+
+
 def v_ifac(v):
     if '"' in v or "\\" in v:
         return 'no " or \\ characters'
@@ -96,7 +106,7 @@ def v_ifac(v):
 class Settings:
     """KEY=value pairs in file order; a key may repeat only where the installer allows."""
 
-    REPEATABLE = {"SSH_AUTHORIZED_KEY", "TCP_CLIENT"}
+    REPEATABLE = {"SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "TCP_CLIENT"}
 
     def __init__(self):
         self.items = []
@@ -127,7 +137,7 @@ def literal(value):
 SECTIONS = [
     ("Wi-Fi (this hardware: 2.4 GHz only)", ["WIFI_SSID", "WIFI_PASS", "WIFI_HIDDEN", "WIFI_OPEN"]),
     ("Ethernet", ["ETH_MODE", "ETH_ADDRESS", "ETH_GATEWAY", "ETH_DNS"]),
-    ("Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "ROOT_PASSWORD_HASH",
+    ("Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH",
                           "SKIP_FIRSTLOGIN_WIZARD"]),
     ("Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE",
                                             "TXPOWER", "PREAMBLE"]),
@@ -195,6 +205,60 @@ def validate(text, installer):
         return None, "PyYAML is not installed, so the network settings could not be checked"
     msgs = [ln for ln in err.splitlines() if ln.startswith("error:")] or err.strip().splitlines()[-2:]
     return False, "\n".join(msgs)
+
+
+# ---------------------------------------------------------------- GitHub keys
+
+KEY_RE = re.compile(r"^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|"
+                    r"sk-ecdsa-sha2-nistp256@openssh\.com)\s+([A-Za-z0-9+/=]+)(\s.*)?$")
+
+
+def fingerprint(blob_b64):
+    try:
+        digest = hashlib.sha256(base64.b64decode(blob_b64)).digest()
+    except ValueError:
+        return "?"
+    return "SHA256:" + base64.b64encode(digest).decode().rstrip("=")
+
+
+def github_keys(user):
+    """Look up a user's public keys. Returns (status, keys): status is 'ok', 'notfound'
+    or 'unreachable'; keys is a list of (type, fingerprint, comment).
+    BOBCAT_GITHUB_URL overrides https://github.com (used by the tests)."""
+    base = os.environ.get("BOBCAT_GITHUB_URL", "https://github.com")
+    req = urllib.request.Request(f"{base}/{user}.keys", headers={"User-Agent": "bobcat-reticulum-node"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return ("notfound", []) if exc.code == 404 else ("unreachable", [])
+    except Exception:
+        return "unreachable", []
+    keys = []
+    for line in body.splitlines():
+        m = KEY_RE.match(line.strip())
+        if m:
+            keys.append((m.group(1), fingerprint(m.group(4)), (m.group(5) or "").strip()))
+    return "ok", keys
+
+
+def check_github_user(user, out=print):
+    """Report what GitHub has for `user`. Returns True if usable, False if it is certainly
+    not (no such user, or no keys), None if GitHub could not be reached."""
+    status, keys = github_keys(user)
+    if status == "notfound":
+        out(f"  GitHub has no user '{user}'")
+        return False
+    if status == "unreachable":
+        out(f"  could not reach GitHub to check '{user}'; the node will fetch the keys when it installs")
+        return None
+    if not keys:
+        out(f"  GitHub user '{user}' has no SSH public keys")
+        return False
+    out(f"  GitHub user '{user}': {len(keys)} key(s)")
+    for kind, fp, comment in keys:
+        out(f"    {kind}  {fp}  {comment}".rstrip())
+    return True
 
 
 # ---------------------------------------------------------------- prompting
@@ -328,6 +392,20 @@ def interview(a, s):
     pasted = a.ask("  Paste another public key (or Enter to skip)")
     if pasted:
         s.set("SSH_AUTHORIZED_KEY", pasted)
+    print("  The node can also fetch the public keys a GitHub user publishes (github.com/NAME.keys),")
+    print("  once, when it installs. It needs internet then.")
+    while True:
+        gh = a.ask("  GitHub username(s) allowed to log in as root (comma separated, Enter for none)", check=v_github)
+        users = [u for u in gh.replace(" ", "").split(",") if u]
+        if not users:
+            break
+        results = [check_github_user(u) for u in users]
+        if any(r is False for r in results):
+            print("  Please try again.")
+            continue
+        for u in users:
+            s.set("SSH_GITHUB_USER", u)
+        break
     if a.yes("Set a root password (the image's default is 1234)?", default=not s.get("SSH_AUTHORIZED_KEY")):
         pw = a.secret("  New root password (not shown)", lambda v: "cannot be empty" if not v else None)
         h = hash_password(pw)
@@ -396,6 +474,11 @@ def parse_args():
     ap.add_argument("--timezone")
     ap.add_argument("--ssh-key-file", action="append", default=[],
                     help="a public key file to allow (repeatable; a file may hold several keys)")
+    ap.add_argument("--ssh-github-user", action="append", default=[], metavar="NAME",
+                    help="allow the public keys GitHub publishes for NAME (repeatable); the node fetches "
+                         "them once, at install time, and the name is checked here first")
+    ap.add_argument("--no-github-check", action="store_true",
+                    help="do not look the GitHub user up from this computer")
     return ap.parse_args()
 
 
@@ -404,7 +487,7 @@ def main():
     s = Settings()
 
     scripted = bool(args.set or args.wifi_ssid or args.hostname or args.timezone or args.ssh_key_file
-                    or args.wifi_hidden or args.wifi_open or args.non_interactive)
+                    or args.ssh_github_user or args.wifi_hidden or args.wifi_open or args.non_interactive)
 
     try:
         if scripted:
@@ -431,6 +514,13 @@ def main():
                 for ln in Path(kf).read_text().splitlines():
                     if ln.strip() and not ln.lstrip().startswith("#"):
                         s.set("SSH_AUTHORIZED_KEY", ln.strip())
+            for user in args.ssh_github_user:
+                problem = v_github(user)
+                if problem:
+                    sys.exit(f"error: {problem}")
+                if not args.no_github_check and check_github_user(user, lambda m: print(m, file=sys.stderr)) is False:
+                    sys.exit(f"error: GitHub user '{user}' cannot be used; nothing was written")
+                s.set("SSH_GITHUB_USER", user)
             for item in args.set:
                 key, sep, value = item.partition("=")
                 if not sep or not re.fullmatch(r"[A-Za-z0-9_]+", key):

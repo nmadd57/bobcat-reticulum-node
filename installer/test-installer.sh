@@ -241,5 +241,87 @@ check_mode="$(stat -c %a "$T/state/install.conf") $(stat -c %a "$T/state/files/k
 out="$(call 'persist_config' --config "$T/state/install.conf")"
 [[ "$(cat "$T/state/install.conf")" == "$saved" ]] && ok "saved settings: a file already in the state directory is left alone" || bad "saved settings: re-run leaves it alone"
 
+# ------------------------------------------------------- GitHub public keys
+# A fake GitHub on localhost serves /<user>.keys; anything else is a 404.
+KEYA='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIalice1 alice@laptop'
+KEYB='ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCalice2 alice@desktop'
+KEYC='ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbob1 bob@host'
+mkdir -p "$T/gh"
+printf '%s\n%s\n' "$KEYA" "$KEYB" > "$T/gh/alice.keys"
+printf '%s\n' "$KEYC" > "$T/gh/bob.keys"
+: > "$T/gh/empty.keys"
+printf 'not a key at all\ncommand="rm -rf /" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIevil evil@x\n%s\n' "$KEYC" > "$T/gh/junk.keys"
+printf 'ssh-dss AAAAB3NzaC1kc3MAAACBAold old@x\n' > "$T/gh/onlyjunk.keys"
+cat > "$T/ghserver.py" <<'PY'
+import functools, http.server, socketserver, sys
+class H(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *a): pass
+srv = socketserver.TCPServer(("127.0.0.1", 0), functools.partial(H, directory=sys.argv[1]))
+open(sys.argv[2], "w").write(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+python3 "$T/ghserver.py" "$T/gh" "$T/ghport" &
+GH_PID=$!
+trap 'kill "$GH_PID" 2>/dev/null; rm -rf "$T"' EXIT
+for _ in $(seq 1 50); do [[ -s "$T/ghport" ]] && break; sleep 0.1; done
+GH_PORT="$(cat "$T/ghport" 2>/dev/null)"
+
+if [[ -z "$GH_PORT" ]]; then
+    bad "github: could not start the fake GitHub"
+else
+    export BOBCAT_GITHUB_URL="http://127.0.0.1:$GH_PORT" BOBCAT_SSH_DIR="$T/ssh" BOBCAT_GITHUB_RETRY_DELAY=0
+    keys_in() { grep -vE '^(#|$)' "$T/ssh/authorized_keys" 2>/dev/null | wc -l | tr -d ' '; }
+
+    out="$(call 'setup_os' --ssh-github-user alice)"; rc=$?
+    check "github: fetch succeeds" "$rc" 0
+    check "github: both of alice's keys were added" "$(keys_in)" 2
+    has   "github: the first key is in authorized_keys" "$KEYA" "$(cat "$T/ssh/authorized_keys")"
+    has   "github: the second key is in authorized_keys" "$KEYB" "$(cat "$T/ssh/authorized_keys")"
+    has   "github: where the keys came from is noted" "# keys published by GitHub user alice" "$(cat "$T/ssh/authorized_keys")"
+    check "github: file is root-only" "$(stat -c %a "$T/ssh/authorized_keys") $(stat -c %a "$T/ssh")" "600 700"
+    out="$(call 'setup_os' --ssh-github-user alice)"; rc=$?
+    check "github: a re-run adds nothing" "$(keys_in)" 2
+    has   "github: and says so" "0 added (2 found)" "$out"
+
+    rm -rf "$T/ssh"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImine mine@here' > "$T/mine.pub"
+    out="$(call 'setup_os' --ssh-key-file "$T/mine.pub" --ssh-github-user alice --ssh-github-user bob)"; rc=$?
+    check "github: several users plus your own key" "$rc $(keys_in)" "0 4"
+    has   "github: your own key is kept" "mine@here" "$(cat "$T/ssh/authorized_keys")"
+    has   "github: the second user's key is there" "$KEYC" "$(cat "$T/ssh/authorized_keys")"
+
+    rm -rf "$T/ssh"
+    out="$(call 'setup_os' --ssh-github-user nosuchuser)"; rc=$?
+    [[ "$rc" -ne 0 ]] && ok "github: an unknown user stops the install" || bad "github: an unknown user stops the install" "$out"
+    has   "github: with a clear message" "'nosuchuser' was not found" "$out"
+    check "github: nothing half-written" "$(keys_in)" 0
+
+    out="$(call 'setup_os' --ssh-github-user empty)"; rc=$?
+    [[ "$rc" -ne 0 && "$out" == *"has no usable SSH public keys"* ]] && ok "github: a user with no keys stops the install" || bad "github: a user with no keys stops the install" "$out"
+    out="$(call 'setup_os' --ssh-github-user onlyjunk)"; rc=$?
+    [[ "$rc" -ne 0 && "$out" == *"has no usable SSH public keys"* ]] && ok "github: only unusable key types stops the install" || bad "github: only unusable key types" "$out"
+
+    rm -rf "$T/ssh"
+    out="$(call 'setup_os' --ssh-github-user junk)"; rc=$?
+    check "github: junk lines are skipped when a real key exists" "$rc $(keys_in)" "0 1"
+    hasnt "github: option-prefixed keys never reach authorized_keys" "rm -rf" "$(cat "$T/ssh/authorized_keys")"
+    has   "github: junk is reported" "not a plain public key" "$out"
+
+    rm -rf "$T/ssh"
+    out="$(BOBCAT_GITHUB_URL="http://127.0.0.1:1" call 'setup_os' --ssh-github-user alice)"; rc=$?
+    [[ "$rc" -ne 0 && "$out" == *"could not reach GitHub"* ]] && ok "github: an unreachable GitHub stops the install (it retries on the next boot attempt)" || bad "github: unreachable" "$out"
+
+    printf 'SSH_GITHUB_USER=alice\nSSH_GITHUB_USER=bob\n' > "$T/gh.conf"
+    plan --config "$T/gh.conf" --ssh-github-user carol
+    has   "github: config keys and options combine (dry run)" "github keys:   alice bob carol" "$OUT"
+    has   "github: the dry run does not fetch" "(fetched at install time)" "$OUT"
+    unset BOBCAT_GITHUB_URL BOBCAT_SSH_DIR BOBCAT_GITHUB_RETRY_DELAY
+fi
+plan_fail "reject: GitHub name starting with a hyphen" "not a valid GitHub username" --ssh-github-user -bad
+plan_fail "reject: GitHub name ending with a hyphen" "not a valid GitHub username" --ssh-github-user bad-
+plan_fail "reject: GitHub name with a double hyphen" "not a valid GitHub username" --ssh-github-user a--b
+plan_fail "reject: GitHub name with a path" "not a valid GitHub username" --ssh-github-user "../etc"
+plan_fail "reject: GitHub name too long" "not a valid GitHub username" --ssh-github-user "$(printf 'a%.0s' {1..40})"
+
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]
