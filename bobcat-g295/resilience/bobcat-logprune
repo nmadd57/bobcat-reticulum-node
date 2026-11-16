@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# bobcat-logprune: keep the on-disk copy of the logs from filling the eMMC.
+#
+# Armbian keeps /var/log in RAM and copies it to /var/log.hdd without deleting
+# anything there, so rotated archives (*.gz, *.1) and stale journal leftovers
+# pile up on disk even though logrotate removed them from RAM. This removes them.
+#
+#   * archives older than LOG_KEEP_DAYS are deleted;
+#   * if what is left (outside the live journal) is still bigger than LOG_MAX_MB,
+#     the oldest archives go first until it fits.
+#
+# Never touched: current log files, and the live journal (journald limits that
+# itself, see 10-bobcat-journal.conf).
+#
+# Settings: /etc/bobcat-lora/logs.conf (LOG_KEEP_DAYS, LOG_MAX_MB). Run daily by
+# bobcat-logprune.timer. Log: journalctl -t bobcat-logprune
+
+set -u
+
+LOGDIR="${LOGPRUNE_DIR:-/var/log.hdd}"
+CONF="${LOGPRUNE_CONF:-/etc/bobcat-lora/logs.conf}"
+KEEP_DAYS=14
+MAX_MB=100
+
+say() { logger -t bobcat-logprune -- "$*" 2>/dev/null; echo "bobcat-logprune: $*"; }
+
+load_conf() {
+    local line key val
+    [[ -r "$CONF" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[[:space:]]*([A-Z_]+)[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*$ ]] || continue
+        key="${BASH_REMATCH[1]}"
+        val="${BASH_REMATCH[2]}"
+        case "$key" in
+            LOG_KEEP_DAYS) (( val >= 1 && val <= 365 )) && KEEP_DAYS="$val" ;;
+            LOG_MAX_MB)    (( val >= 20 && val <= 2000 )) && MAX_MB="$val" ;;
+        esac
+    done < "$CONF"
+}
+
+# Rotated copies: compressed files, numbered rotations, *.old, journals a crash
+# left marked as unclean (*.journal~). The live system.journal is not in this set.
+archives() {
+    find "$LOGDIR" -xdev -type f -regextype posix-extended \
+        -regex '.*(\.(gz|xz|bz2|zst|old)|\.[0-9]+|\.journal~)' "$@"
+}
+
+main() {
+    load_conf
+    [[ -d "$LOGDIR" ]] || exit 0
+
+    local removed=0 freed=0 f size
+
+    # 1. by age
+    while IFS= read -r -d '' f; do
+        size="$(stat -c %s "$f" 2>/dev/null || echo 0)"
+        rm -f -- "$f" && { removed=$((removed + 1)); freed=$((freed + size)); }
+    done < <(archives -mtime "+$KEEP_DAYS" -print0)
+
+    # old journal backup directories (made by armbian-ramlog)
+    while IFS= read -r -d '' f; do
+        size="$(du -sb "$f" 2>/dev/null | cut -f1)"
+        rm -rf -- "$f" && { removed=$((removed + 1)); freed=$((freed + ${size:-0})); }
+    done < <(find "$LOGDIR" -xdev -maxdepth 1 -type d -name 'journal-*' -mtime "+$KEEP_DAYS" -print0)
+
+    # 2. by size: oldest archives first until everything outside the live journal fits
+    local limit=$((MAX_MB * 1024 * 1024)) total
+    total="$(du -sb --exclude=journal "$LOGDIR" 2>/dev/null | cut -f1)"
+    total="${total:-0}"
+    while (( total > limit )); do
+        f="$(archives -printf '%T@ %p\n' | sort -n | head -n 1 | cut -d' ' -f2-)"
+        [[ -n "$f" ]] || break
+        size="$(stat -c %s "$f" 2>/dev/null || echo 0)"
+        rm -f -- "$f" || break
+        removed=$((removed + 1)); freed=$((freed + size)); total=$((total - size))
+    done
+
+    if (( removed > 0 )); then
+        say "removed $removed old log file(s), freed $((freed / 1024)) KiB (keep $KEEP_DAYS days, cap ${MAX_MB} MB)"
+    fi
+}
+
+main

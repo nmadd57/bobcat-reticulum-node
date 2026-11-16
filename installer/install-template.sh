@@ -22,6 +22,7 @@
 #   5. unpacks the code to /opt/bobcat-lora, builds the HAL, makes a venv with rns
 #   6. writes /etc/reticulum/config, links the interface
 #   7. installs and starts the rnsd-sx1302 systemd service, then checks the radio is up
+#      and installs self-recovery: persistent logs, hardware watchdog, network watchdog
 #   8. keeps a copy of the config file (and the files it points to) in /etc/bobcat-lora/
 #
 # Build: @BUILD_INFO@
@@ -33,6 +34,10 @@ PREFIX="${BOBCAT_PREFIX:-/opt/bobcat-lora}"
 CONFIGDIR="${BOBCAT_RETICULUM_DIR:-/etc/reticulum}"
 STATEDIR="${BOBCAT_STATE_DIR:-/etc/bobcat-lora}"
 SSH_DIR="${BOBCAT_SSH_DIR:-/root/.ssh}"
+SYSTEMD_DIR="${BOBCAT_SYSTEMD_DIR:-/etc/systemd}"
+SBIN_DIR="${BOBCAT_SBIN_DIR:-/usr/local/sbin}"
+SYSCTL_DIR="${BOBCAT_SYSCTL_DIR:-/etc/sysctl.d}"
+WATCHDOG_DEV="${BOBCAT_WATCHDOG_DEV:-/dev/watchdog0}"
 # A plain public key line: type, base64 blob, optional comment. Options such as
 # command="..." in front are deliberately not accepted.
 SSH_KEY_RE='^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$'
@@ -44,6 +49,7 @@ OPT_FREQ="" OPT_BW="" OPT_SF="" OPT_CR="" OPT_TXP="" OPT_PREAMBLE=""
 # Reticulum
 OPT_TRANSPORT=1 OPT_AUTOIF=1 OPT_RNODE_FRAMING=1 OPT_IFMODE=""
 OPT_IFAC_NET="" OPT_IFAC_PASS="" OPT_IFAC_PASS_FILE=""
+OPT_RESILIENCE=1 OPT_NW_TARGET="" OPT_NW_REBOOT=20 OPT_LOG_DAYS=14 OPT_LOG_MB=100
 OPT_TCP_PORT="" OPT_TCP_CLIENTS=() OPT_RNS_CONFIG=""
 # Behaviour
 OPT_FORCE_CONFIG=0 OPT_START=1 OPT_HOLD=1 OPT_FORCE_BOARD=0 OPT_EXTRACT_ONLY=""
@@ -96,6 +102,16 @@ Reticulum:
   --tcp-client HOST:PORT  also connect to a Reticulum TCP server (repeatable)
   --reticulum-config F  use F as /etc/reticulum/config instead of generating one
   --force-config        overwrite /etc/reticulum/config even if it was edited by hand
+
+Self-recovery (on by default; see docs/self-recovery.md):
+  --no-resilience       do not install, and remove if present: journal flushing, the
+                        hardware watchdog and the network watchdog
+  --netwatch-target H   ping this address instead of the default gateway
+  --netwatch-reboot-minutes N
+                        reboot after N minutes without network (5-1440, default 20;
+                        0 = never reboot, the other recovery steps still run)
+  --log-keep-days N     keep rotated logs and journal this long (1-365, default 14)
+  --log-max-mb N        cap on rotated logs kept on disk (20-2000, default 100)
 
 Networking (netplan, rendered by NetworkManager; applied BEFORE packages are
 installed, so a node with no cable can get online first):
@@ -189,6 +205,11 @@ apply_config_key() {
         TCP_SERVER_PORT)      OPT_TCP_PORT="$val" ;;
         TCP_CLIENT)           [[ -z "$val" ]] || OPT_TCP_CLIENTS+=("$val") ;;
         RETICULUM_CONFIG_FILE) OPT_RNS_CONFIG="$(abs_path "$val" "$base")" ;;
+        RESILIENCE)           OPT_RESILIENCE="$(to_bool "$val")" ;;
+        NETWATCH_TARGET)      OPT_NW_TARGET="$val" ;;
+        NETWATCH_REBOOT_MINUTES) OPT_NW_REBOOT="$val" ;;
+        LOG_KEEP_DAYS)        OPT_LOG_DAYS="$val" ;;
+        LOG_MAX_MB)           OPT_LOG_MB="$val" ;;
         SCRUB_BOOT_CONF)      : ;;   # used by the first-boot service only
         *)                    warn "$CURRENT_CONFIG: ignoring unknown key $key" ;;
     esac
@@ -248,6 +269,11 @@ while [[ $# -gt 0 ]]; do
         --tcp-client)      need "$@"; OPT_TCP_CLIENTS+=("$2"); shift 2 ;;
         --reticulum-config) need "$@"; OPT_RNS_CONFIG="$2"; shift 2 ;;
         --force-config)    OPT_FORCE_CONFIG=1; shift ;;
+        --no-resilience)   OPT_RESILIENCE=0; shift ;;
+        --netwatch-target) need "$@"; OPT_NW_TARGET="$2"; shift 2 ;;
+        --netwatch-reboot-minutes) need "$@"; OPT_NW_REBOOT="$2"; shift 2 ;;
+        --log-keep-days)   need "$@"; OPT_LOG_DAYS="$2"; shift 2 ;;
+        --log-max-mb)      need "$@"; OPT_LOG_MB="$2"; shift 2 ;;
         --no-start)        OPT_START=0; shift ;;
         --no-hold)         OPT_HOLD=0; shift ;;
         --force-board)     OPT_FORCE_BOARD=1; shift ;;
@@ -335,6 +361,16 @@ validate_options() {
             warn "a complete Reticulum config was given, so the radio, IFAC, mode and TCP settings are ignored"
         fi
     fi
+
+    # --- self-recovery
+    [[ "$OPT_NW_REBOOT" =~ ^[0-9]+$ ]] && { ((OPT_NW_REBOOT == 0 || (OPT_NW_REBOOT >= 5 && OPT_NW_REBOOT <= 1440))); } ||
+        fail "netwatch reboot minutes must be 0 (never) or 5-1440"
+    [[ -z "$OPT_NW_TARGET" || "$OPT_NW_TARGET" =~ ^[A-Za-z0-9._-]+$ ]] ||
+        fail "the netwatch target must be a host name or IP address"
+    [[ "$OPT_LOG_DAYS" =~ ^[0-9]+$ ]] && ((OPT_LOG_DAYS >= 1 && OPT_LOG_DAYS <= 365)) ||
+        fail "log keep days must be 1-365"
+    [[ "$OPT_LOG_MB" =~ ^[0-9]+$ ]] && ((OPT_LOG_MB >= 20 && OPT_LOG_MB <= 2000)) ||
+        fail "log size cap must be 20-2000 MB"
 
     # --- network
     if [[ -n "$OPT_NETPLAN_FILE" && ( -n "$OPT_WIFI_SSID" || -n "$OPT_ETH_MODE" && "$OPT_ETH_MODE" != "keep" ) ]]; then
@@ -1004,6 +1040,89 @@ write_config() {
     note "wrote $cfg"
 }
 
+# Self-recovery: logs that survive a hard reset, a watchdog for hangs, and a
+# network watchdog. Files come from the bundle (bobcat-g295/resilience).
+RESILIENCE_UNITS="bobcat-netwatch.service bobcat-netwatch.timer bobcat-logflush.service bobcat-logflush.timer bobcat-logprune.service bobcat-logprune.timer"
+
+remove_resilience() {
+    local removed=0 u
+    for u in bobcat-netwatch.timer bobcat-logflush.timer bobcat-logprune.timer; do
+        if [[ -e "$SYSTEMD_DIR/system/$u" ]]; then
+            systemctl disable --now "$u" >/dev/null 2>&1 || true
+        fi
+    done
+    for u in $RESILIENCE_UNITS; do
+        [[ -e "$SYSTEMD_DIR/system/$u" ]] && { rm -f "$SYSTEMD_DIR/system/$u"; removed=1; }
+    done
+    for f in "$SBIN_DIR/bobcat-netwatch" "$SBIN_DIR/bobcat-logprune" \
+             "$SYSTEMD_DIR/journald.conf.d/10-bobcat-journal.conf" \
+             "$SYSCTL_DIR/10-bobcat-panic.conf" "$STATEDIR/netwatch.conf" "$STATEDIR/logs.conf"; do
+        [[ -e "$f" ]] && { rm -f "$f"; removed=1; }
+    done
+    if [[ -e "$SYSTEMD_DIR/system.conf.d/10-bobcat-watchdog.conf" ]]; then
+        rm -f "$SYSTEMD_DIR/system.conf.d/10-bobcat-watchdog.conf"
+        removed=1
+        note "the hardware watchdog cannot be disarmed while running: it stops at the next reboot"
+    fi
+    if [[ "$removed" -eq 1 ]]; then
+        systemctl daemon-reload
+        note "self-recovery removed"
+    else
+        note "self-recovery not installed (nothing to remove)"
+    fi
+}
+
+setup_resilience() {
+    log "Self-recovery"
+    if [[ "$OPT_RESILIENCE" -eq 0 ]]; then
+        remove_resilience
+        return 0
+    fi
+    local src="$PREFIX/bobcat-g295/resilience" u
+    [[ -d "$src" ]] || fail "the self-recovery files are missing from the bundle ($src)"
+
+    install -d "$SBIN_DIR" "$SYSTEMD_DIR/system" "$SYSTEMD_DIR/journald.conf.d" "$SYSCTL_DIR" "$STATEDIR"
+    install -m 755 "$src/bobcat-netwatch" "$SBIN_DIR/bobcat-netwatch"
+    install -m 755 "$src/bobcat-logprune" "$SBIN_DIR/bobcat-logprune"
+    for u in $RESILIENCE_UNITS; do
+        install -m 644 "$src/$u" "$SYSTEMD_DIR/system/$u"
+    done
+    sed "s/@KEEP_DAYS@/$OPT_LOG_DAYS/" "$src/10-bobcat-journal.conf" > "$SYSTEMD_DIR/journald.conf.d/10-bobcat-journal.conf"
+    chmod 644 "$SYSTEMD_DIR/journald.conf.d/10-bobcat-journal.conf"
+    install -m 644 "$src/10-bobcat-panic.conf" "$SYSCTL_DIR/10-bobcat-panic.conf"
+    {
+        echo "# Written by bobcat-g295-install.sh; see /usr/local/sbin/bobcat-netwatch"
+        echo "REBOOT_MINUTES=$OPT_NW_REBOOT"
+        [[ -z "$OPT_NW_TARGET" ]] || echo "TARGET=$OPT_NW_TARGET"
+    } > "$STATEDIR/netwatch.conf"
+    chmod 644 "$STATEDIR/netwatch.conf"
+    printf '# Written by bobcat-g295-install.sh; see /usr/local/sbin/bobcat-logprune\nLOG_KEEP_DAYS=%s\nLOG_MAX_MB=%s\n' \
+        "$OPT_LOG_DAYS" "$OPT_LOG_MB" > "$STATEDIR/logs.conf"
+    chmod 644 "$STATEDIR/logs.conf"
+
+    if [[ -e "$WATCHDOG_DEV" ]]; then
+        install -d "$SYSTEMD_DIR/system.conf.d"
+        install -m 644 "$src/10-bobcat-watchdog.conf" "$SYSTEMD_DIR/system.conf.d/10-bobcat-watchdog.conf"
+        note "hardware watchdog: armed through systemd (it cannot be disarmed until reboot)"
+    else
+        note "no hardware watchdog device ($WATCHDOG_DEV); skipping that part"
+    fi
+
+    systemctl daemon-reload
+    sysctl -q -p "$SYSCTL_DIR/10-bobcat-panic.conf" >/dev/null 2>&1 || warn "could not apply the kernel panic settings now (they apply at next boot)"
+    systemctl daemon-reexec          # applies the watchdog setting
+    systemctl restart systemd-journald
+    journalctl --flush >/dev/null 2>&1 || true
+    if [[ "$OPT_START" -eq 1 ]]; then
+        systemctl enable --now bobcat-netwatch.timer bobcat-logflush.timer bobcat-logprune.timer >/dev/null 2>&1
+        note "journal flush every 5 minutes; network watchdog every minute (reboot after ${OPT_NW_REBOOT} min, 0 = never)"
+        note "logs kept ${OPT_LOG_DAYS} days, rotated archives on disk capped at ${OPT_LOG_MB} MB"
+    else
+        systemctl enable bobcat-netwatch.timer bobcat-logflush.timer bobcat-logprune.timer >/dev/null 2>&1
+        note "installed and enabled; the timers start at next boot (--no-start)"
+    fi
+}
+
 install_service() {
     log "systemd service"
     cat > "/etc/systemd/system/$SERVICE.service" <<EOF
@@ -1141,6 +1260,15 @@ print_plan() {
     fi
     echo "root password: $([[ -n $OPT_ROOT_HASH ]] && echo 'will be set from the hash' || echo unchanged)"
     echo "first-login wizard: $([[ $OPT_SKIP_WIZARD -eq 1 ]] && echo 'will be skipped' || echo untouched)"
+    echo
+    echo "-- self-recovery"
+    if [[ "$OPT_RESILIENCE" -eq 1 ]]; then
+        echo "self-recovery: on (persistent journal, hardware watchdog, network watchdog)"
+        echo "netwatch:      pings ${OPT_NW_TARGET:-the default gateway}; reboot after $([[ $OPT_NW_REBOOT -eq 0 ]] && echo 'never' || echo "$OPT_NW_REBOOT minutes")"
+        echo "logs on disk:  kept $OPT_LOG_DAYS days, rotated archives capped at $OPT_LOG_MB MB"
+    else
+        echo "self-recovery: off (installed parts are removed)"
+    fi
 
     if wants_generated_network; then
         echo
@@ -1177,6 +1305,7 @@ main() {
     install_code
     write_config
     install_service
+    setup_resilience
     persist_config
     local ok=0
     verify || ok=1

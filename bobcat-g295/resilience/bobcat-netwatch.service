@@ -1,0 +1,9 @@
+[Unit]
+Description=Bobcat network watchdog: recover a dead connection
+Documentation=https://reticulum.network/
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bobcat-netwatch
+TimeoutStartSec=240

@@ -80,3 +80,18 @@ Things learned while building this, kept because each one cost time.
   there ends the script with no message. Capture output into a variable and
   report it (`super_info` in `image/lib.sh`). `grep -q` at the end of a pipe can
   also close it early and make the left side look like it failed (SIGPIPE).
+
+## Logs on the Bobcat image
+- `/var/log` is a RAM disk (zram) managed by `armbian-ramlog`; the on-disk copy is
+  `/var/log.hdd`. It is written only at shutdown and by logrotate (`armbian-ramlog
+  write`), so after a hard reset everything since boot is gone.
+- `/var/log/journal` is a symlink into `/var/log.hdd/journal`, but `armbian-ramlog
+  write` ends with `journalctl --relinquish-var`, which sends journald back to RAM
+  until something flushes again. `journalctl --flush` on a timer fixes that.
+- The sync uses `rsync` without `--delete`: archives logrotate removes from RAM stay
+  on disk forever. That is what `bobcat-logprune` prunes.
+- The SoC watchdog (`dw_wdt`) has no magic-close support: once armed it cannot be
+  stopped, only fed. systemd's `RuntimeWatchdogSec` arms it; removing the setting
+  needs a reboot to take effect.
+- The network watchdog must never act on the LoRa side, and must not be able to loop:
+  reboot cooldown (3 h), counter in `/run`, no action without a connection profile.

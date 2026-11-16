@@ -61,6 +61,18 @@
 #TCP_CLIENT=hub.example.org:4242
 #TCP_CLIENT=192.168.1.20:4242
 
+# ===== Self-recovery (on by default; docs/self-recovery.md) ==================
+# Persistent logs, hardware watchdog, and a network watchdog that restarts Wi-Fi and
+# finally reboots when the network stays dead.
+#RESILIENCE=yes
+# Minutes without network before the last-resort reboot (0 = never reboot).
+#NETWATCH_REBOOT_MINUTES=20
+# Ping this instead of the default gateway.
+#NETWATCH_TARGET=192.168.1.1
+# How long logs are kept, and the cap on rotated logs on disk.
+#LOG_KEEP_DAYS=14
+#LOG_MAX_MB=100
+
 # ===== After the install =====================================================
 # Clear WIFI_PASS and IFAC_PASSPHRASE from the file on the FAT partition once
 # the install succeeded (default yes). A root-only copy is kept on the system.

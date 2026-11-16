@@ -1,0 +1,153 @@
+#!/bin/bash
+#
+# bobcat-netwatch: notice a dead network connection and recover it.
+#
+# Run once a minute by bobcat-netwatch.timer. It checks that the default gateway
+# (or NETWATCH target) answers a ping. After consecutive failed minutes it escalates:
+#
+#   minute 3   disconnect and reconnect the Wi-Fi device
+#   minute 6   restart NetworkManager
+#   minute 9   reload the Wi-Fi driver (the board's SDIO chip can wedge), restart NM
+#   minute N   reboot, N = REBOOT_MINUTES (default 20, 0 = never reboot)
+#
+# A reboot happens at most once every 3 hours, so a network that is down for a
+# reason a reboot cannot fix (router off, antenna gone) does not turn into a reboot
+# loop. The node stays useful over LoRa the whole time.
+#
+# Nothing happens on a machine that has no Wi-Fi or Ethernet connection profile.
+#
+# Settings: /etc/bobcat-lora/netwatch.conf  (KEY=value; TARGET, REBOOT_MINUTES)
+# Log: journalctl -t bobcat-netwatch
+
+set -u
+
+CONF="${NETWATCH_CONF:-/etc/bobcat-lora/netwatch.conf}"
+STATE="${NETWATCH_STATE_DIR:-/run/bobcat-netwatch}"
+PERSIST="${NETWATCH_PERSIST_DIR:-/var/lib/bobcat-lora}"
+REBOOT_COOLDOWN="${NETWATCH_REBOOT_COOLDOWN:-10800}"
+
+TARGET=""
+REBOOT_MINUTES=20
+
+say() { logger -t bobcat-netwatch -- "$*" 2>/dev/null; echo "bobcat-netwatch: $*"; }
+
+load_conf() {
+    local line key val
+    [[ -r "$CONF" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+        [[ "$line" =~ ^[[:space:]]*([A-Z_]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+        key="${BASH_REMATCH[1]}"
+        val="${BASH_REMATCH[2]}"
+        case "$key" in
+            TARGET)
+                [[ -z "$val" || "$val" =~ ^[A-Za-z0-9._-]+$ ]] && TARGET="$val" ;;
+            REBOOT_MINUTES)
+                [[ "$val" =~ ^[0-9]+$ ]] && REBOOT_MINUTES="$val" ;;
+        esac
+    done < "$CONF"
+}
+
+# Is this machine supposed to have a network connection at all?
+expected_online() {
+    nmcli -t -f TYPE,AUTOCONNECT connection show 2>/dev/null | grep -qE '^(802-11-wireless|802-3-ethernet):yes$'
+}
+
+reachable() {
+    local target="$TARGET"
+    if [[ -z "$target" ]]; then
+        target="$(ip route show default 2>/dev/null | awk '/^default/ { print $3; exit }')"
+        [[ -n "$target" ]] || return 1          # no default route at all
+    fi
+    ping -c 2 -W 3 "$target" >/dev/null 2>&1
+}
+
+wifi_device() {
+    nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2 == "wifi" { print $1; exit }'
+}
+
+reconnect_wifi() {
+    local dev
+    dev="$(wifi_device)"
+    if [[ -z "$dev" ]]; then
+        say "no Wi-Fi device to reconnect"
+        return
+    fi
+    say "reconnecting $dev"
+    nmcli --wait 20 device disconnect "$dev" >/dev/null 2>&1
+    sleep 2
+    nmcli --wait 30 device connect "$dev" >/dev/null 2>&1
+}
+
+restart_networkmanager() {
+    say "restarting NetworkManager"
+    systemctl restart NetworkManager
+}
+
+reload_wifi_driver() {
+    if ! lsmod 2>/dev/null | grep -q '^brcmfmac'; then
+        say "Wi-Fi driver is not a loadable module here; skipping the reload"
+        return
+    fi
+    say "reloading the Wi-Fi driver"
+    modprobe -r brcmfmac_wcc brcmfmac brcmutil >/dev/null 2>&1
+    sleep 2
+    modprobe brcmfmac >/dev/null 2>&1
+    modprobe brcmfmac_wcc >/dev/null 2>&1
+    sleep 5
+    systemctl restart NetworkManager
+}
+
+maybe_reboot() {
+    local now last
+    now="$(date +%s)"
+    last="$(cat "$PERSIST/netwatch-last-reboot" 2>/dev/null || echo 0)"
+    [[ "$last" =~ ^[0-9]+$ ]] || last=0
+    if (( now - last < REBOOT_COOLDOWN )); then
+        say "still no network but a reboot already happened in the last $((REBOOT_COOLDOWN / 3600)) hours; not rebooting again"
+        return
+    fi
+    mkdir -p "$PERSIST"
+    echo "$now" > "$PERSIST/netwatch-last-reboot"
+    sync
+    say "no network for $1 minutes: rebooting"
+    systemctl reboot
+}
+
+main() {
+    load_conf
+    mkdir -p "$STATE"
+    local fails=0
+    [[ -r "$STATE/fails" ]] && fails="$(cat "$STATE/fails")"
+    [[ "$fails" =~ ^[0-9]+$ ]] || fails=0
+
+    if ! expected_online; then
+        echo 0 > "$STATE/fails"
+        exit 0
+    fi
+
+    if reachable; then
+        (( fails > 0 )) && say "network is back after $fails minute(s)"
+        echo 0 > "$STATE/fails"
+        exit 0
+    fi
+
+    fails=$((fails + 1))
+    echo "$fails" > "$STATE/fails"
+    say "no connectivity (minute $fails)"
+
+    case "$fails" in
+        3) reconnect_wifi ;;
+        6) restart_networkmanager ;;
+        9) reload_wifi_driver ;;
+    esac
+
+    if (( REBOOT_MINUTES > 0 && fails >= REBOOT_MINUTES )); then
+        maybe_reboot "$fails"
+    fi
+}
+
+if [[ -z "${BOBCAT_NETWATCH_NO_MAIN:-}" ]]; then
+    main
+fi

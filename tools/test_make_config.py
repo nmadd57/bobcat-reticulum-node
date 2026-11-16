@@ -160,6 +160,7 @@ def test_root_password_becomes_a_hash_the_installer_accepts(tmp_path):
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
+        "y", "",        # self-recovery on, default reboot minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path)
@@ -191,6 +192,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
         "gateway",             # mode
         "y", "hub.example.org:4242", "n",  # TCP hub
         "4242",                # TCP server
+        "y", "30",             # self-recovery on, reboot after 30 minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path)
@@ -198,17 +200,17 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
     got = installer_view(out, "OPT_WIFI_SSID", "OPT_WIFI_PASS", "OPT_WIFI_HIDDEN", "OPT_ETH_MODE", "OPT_ETH_ADDR",
                          "OPT_ETH_GW", "OPT_ETH_DNS", "OPT_HOSTNAME", "OPT_TIMEZONE", "OPT_FREQ", "OPT_BW",
                          "OPT_SF", "OPT_CR", "OPT_TXP", "OPT_TRANSPORT", "OPT_IFAC_NET", "OPT_IFAC_PASS",
-                         "OPT_IFMODE", "OPT_TCP_PORT", "OPT_SKIP_WIZARD")
+                         "OPT_IFMODE", "OPT_TCP_PORT", "OPT_SKIP_WIZARD", "OPT_RESILIENCE", "OPT_NW_REBOOT")
     assert got == ["Back Yard", "pa ss word 1", "1", "static", "192.168.1.50/24", "192.168.1.1",
                    "9.9.9.9,1.1.1.1", "bobcat-yard", "Europe/Berlin", "868000000", "250000", "10", "6", "13",
-                   "0", "meshnet", "shared secret", "gateway", "4242", "1"]
+                   "0", "meshnet", "shared secret", "gateway", "4242", "1", "1", "30"]
     assert "TCP_CLIENT=hub.example.org:4242" in out.read_text()
     assert "ssh-ed25519" in out.read_text()
 
 
 def test_questionnaire_reprompts_on_a_bad_answer(tmp_path):
     answers = "\n".join(["y", "Net", "n", "n", "short", "longenough1",   # passphrase: too short, then ok
-                         "keep", "", "", "", "", "n", "y", "n", "n", "n", "", "n", ""]) + "\n"
+                         "keep", "", "", "", "", "n", "y", "n", "n", "n", "", "n", "", "y", ""]) + "\n"
     r = run("-o", str(tmp_path / "c.conf"), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert "8 to 63 characters" in r.stdout
@@ -276,6 +278,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
         "alice",                      # GitHub: fine
         "n", "y",                     # root password no, skip first-login yes
         "n", "n", "n", "", "n", "",   # radio, transport, IFAC, mode, hub, server
+        "y", "",                      # self-recovery on, default minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path, env_extra={"BOBCAT_GITHUB_URL": github})
@@ -283,3 +286,20 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
     assert "no user 'nosuchuser'" in r.stdout and "Please try again" in r.stdout
     assert EXPECTED_FP in r.stdout
     assert out.read_text().count("SSH_GITHUB_USER=alice") == 1 and "nosuchuser" not in out.read_text()
+
+
+def test_questionnaire_can_turn_self_recovery_off(tmp_path):
+    answers = "\n".join(["n", "", "", "", "", "", "n", "y", "n", "n", "n", "", "n", "", "n"]) + "\n"
+    out = tmp_path / "c.conf"
+    r = run("-o", str(out), stdin=answers, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "RESILIENCE=no" in out.read_text()
+    assert installer_view(out, "OPT_RESILIENCE") == ["0"]
+
+
+def test_self_recovery_settings_are_validated_by_the_installer(tmp_path):
+    r = run("--set", "NETWATCH_REBOOT_MINUTES=2", "-o", "-", cwd=tmp_path)
+    assert r.returncode != 0 and "reboot minutes" in r.stderr
+    ok = run("--set", "NETWATCH_REBOOT_MINUTES=45", "--set", "LOG_KEEP_DAYS=7", "--set", "LOG_MAX_MB=200", "-o", "-", cwd=tmp_path)
+    assert ok.returncode == 0, ok.stderr
+    assert "NETWATCH_REBOOT_MINUTES=45" in ok.stdout

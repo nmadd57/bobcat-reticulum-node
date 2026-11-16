@@ -1,0 +1,8 @@
+[Unit]
+Description=Write the journal to disk so it survives a hard reset
+
+[Service]
+Type=oneshot
+# Armbian keeps the journal in RAM after each of its log syncs. A flush moves
+# what is pending to the eMMC and switches journald back to writing there.
+ExecStart=/usr/bin/journalctl --flush

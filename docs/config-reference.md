@@ -108,6 +108,17 @@ A generated `/etc/reticulum/config` is rewritten when settings change, as long
 as nobody edited it by hand; an edited file is kept (use `--force-config` to
 replace it).
 
+### Self-recovery
+Installed by default; details in [`self-recovery.md`](self-recovery.md).
+
+| Key | Option | Meaning |
+|---|---|---|
+| `RESILIENCE` | `--no-resilience` | `no` removes persistent logs, the watchdogs and the network watchdog |
+| `NETWATCH_TARGET` | `--netwatch-target` | host or IP to ping instead of the default gateway |
+| `NETWATCH_REBOOT_MINUTES` | `--netwatch-reboot-minutes` | reboot after this many minutes without network; `0` never, otherwise 5-1440 (default 20) |
+| `LOG_KEEP_DAYS` | `--log-keep-days` | keep the journal and rotated logs this long, 1-365 (default 14) |
+| `LOG_MAX_MB` | `--log-max-mb` | cap on rotated logs kept on disk, 20-2000 (default 100) |
+
 ### First boot only
 | Key | Meaning |
 |---|---|

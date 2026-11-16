@@ -241,6 +241,96 @@ check_mode="$(stat -c %a "$T/state/install.conf") $(stat -c %a "$T/state/files/k
 out="$(call 'persist_config' --config "$T/state/install.conf")"
 [[ "$(cat "$T/state/install.conf")" == "$saved" ]] && ok "saved settings: a file already in the state directory is left alone" || bad "saved settings: re-run leaves it alone"
 
+# ------------------------------------------------------------- self-recovery
+plan_ok "recovery: on by default (dry run)"
+has   "recovery: plan says so" "self-recovery: on" "$OUT"
+has   "recovery: default reboot threshold" "reboot after 20 minutes" "$OUT"
+plan --netwatch-target 192.0.2.1 --netwatch-reboot-minutes 0
+has   "recovery: options show in the plan" "pings 192.0.2.1; reboot after never" "$OUT"
+plan --no-resilience
+has   "recovery: can be turned off" "self-recovery: off" "$OUT"
+printf 'RESILIENCE=no\nNETWATCH_REBOOT_MINUTES=45\nNETWATCH_TARGET=router.lan\n' > "$T/res.conf"
+plan --config "$T/res.conf"
+has   "recovery: settings file can turn it off" "self-recovery: off" "$OUT"
+printf 'NETWATCH_REBOOT_MINUTES=45\nNETWATCH_TARGET=router.lan\n' > "$T/res2.conf"
+plan --config "$T/res2.conf"
+has   "recovery: settings file sets minutes and target" "pings router.lan; reboot after 45 minutes" "$OUT"
+plan_fail "reject: reboot minutes too small" "must be 0 (never) or 5-1440" --netwatch-reboot-minutes 2
+plan_fail "reject: reboot minutes too large" "must be 0 (never) or 5-1440" --netwatch-reboot-minutes 5000
+plan_fail "reject: reboot minutes not a number" "must be 0 (never) or 5-1440" --netwatch-reboot-minutes soon
+plan_fail "reject: target with a space" "host name or IP address" --netwatch-target "a b"
+plan_fail "reject: target that is a command" "host name or IP address" --netwatch-target '$(id)'
+plan_fail "reject: log days out of range" "log keep days must be 1-365" --log-keep-days 0
+plan_fail "reject: log days not a number" "log keep days must be 1-365" --log-keep-days forever
+plan_fail "reject: log cap out of range" "log size cap must be 20-2000 MB" --log-max-mb 5
+plan --log-keep-days 7 --log-max-mb 200
+has   "recovery: log settings show in the plan" "kept 7 days, rotated archives capped at 200 MB" "$OUT"
+
+# Real file placement, against temporary directories with recording stubs.
+mkdir -p "$T/stubbin" "$T/prefix/bobcat-g295"
+cp -r "$HERE/../bobcat-g295/resilience" "$T/prefix/bobcat-g295/"
+for c in systemctl sysctl journalctl; do
+    printf '#!/bin/sh\necho "%s $*" >> "%s/syscalls"\n' "$c" "$T" > "$T/stubbin/$c"
+done
+chmod +x "$T/stubbin/"*
+export BOBCAT_SYSTEMD_DIR="$T/etc-systemd" BOBCAT_SBIN_DIR="$T/sbin" BOBCAT_SYSCTL_DIR="$T/sysctl.d" BOBCAT_WATCHDOG_DEV="$T/watchdog0"
+: > "$T/watchdog0"
+callr() { : > "$T/syscalls"; PATH="$T/stubbin:$PATH" call "$@"; }
+sysc() { cat "$T/syscalls"; }
+
+out="$(callr setup_resilience)"; rc=$?
+check "recovery install: succeeds" "$rc" 0
+check "recovery install: watcher and pruner scripts are executable" "$(stat -c %a "$T/sbin/bobcat-netwatch") $(stat -c %a "$T/sbin/bobcat-logprune")" "755 755"
+for f in bobcat-netwatch.service bobcat-netwatch.timer bobcat-logflush.service bobcat-logflush.timer bobcat-logprune.service bobcat-logprune.timer; do
+    [[ -f "$T/etc-systemd/system/$f" ]] && ok "recovery install: $f in place" || bad "recovery install: $f in place"
+done
+[[ -f "$T/etc-systemd/journald.conf.d/10-bobcat-journal.conf" ]] && ok "recovery install: persistent journal setting" || bad "recovery install: persistent journal setting"
+has   "recovery install: journal is set to persistent" "Storage=persistent" "$(cat "$T/etc-systemd/journald.conf.d/10-bobcat-journal.conf")"
+[[ -f "$T/sysctl.d/10-bobcat-panic.conf" ]] && ok "recovery install: panic setting" || bad "recovery install: panic setting"
+[[ -f "$T/etc-systemd/system.conf.d/10-bobcat-watchdog.conf" ]] && ok "recovery install: hardware watchdog armed when the device exists" || bad "recovery install: watchdog drop-in"
+has   "recovery install: watchdog drop-in content" "RuntimeWatchdogSec=30s" "$(cat "$T/etc-systemd/system.conf.d/10-bobcat-watchdog.conf")"
+check "recovery install: netwatch settings written" "$(cat "$T/state/netwatch.conf" | grep -v '^#')" "REBOOT_MINUTES=20"
+has   "recovery install: systemd reloaded then re-executed" "systemctl daemon-reexec" "$(sysc)"
+has   "recovery install: journald restarted" "systemctl restart systemd-journald" "$(sysc)"
+has   "recovery install: journal flushed" "journalctl --flush" "$(sysc)"
+has   "recovery install: panic sysctl applied" "sysctl -q -p $T/sysctl.d/10-bobcat-panic.conf" "$(sysc)"
+has   "recovery install: all three timers enabled and started" "systemctl enable --now bobcat-netwatch.timer bobcat-logflush.timer bobcat-logprune.timer" "$(sysc)"
+has   "recovery install: journal retention follows the keep-days setting" "MaxRetentionSec=14day" "$(cat "$T/etc-systemd/journald.conf.d/10-bobcat-journal.conf")"
+hasnt "recovery install: no placeholder left in the journal setting" "@KEEP_DAYS@" "$(cat "$T/etc-systemd/journald.conf.d/10-bobcat-journal.conf")"
+has   "recovery install: firm journal limits" "SystemKeepFree=1G" "$(cat "$T/etc-systemd/journald.conf.d/10-bobcat-journal.conf")"
+check "recovery install: log settings written" "$(grep -v '^#' "$T/state/logs.conf" | paste -sd' ')" "LOG_KEEP_DAYS=14 LOG_MAX_MB=100"
+order="$(grep -nE 'daemon-reload|daemon-reexec|enable' "$T/syscalls" | cut -d: -f2- | tr '\n' ';')"
+has   "recovery install: reload before re-exec before enabling" "systemctl daemon-reload;systemctl daemon-reexec;" "$order"
+
+out="$(callr setup_resilience --netwatch-target 198.51.100.1 --netwatch-reboot-minutes 0 --log-keep-days 3 --log-max-mb 50)"
+check "recovery install: custom settings" "$(grep -v '^#' "$T/state/netwatch.conf" | paste -sd' ')" "REBOOT_MINUTES=0 TARGET=198.51.100.1"
+check "recovery install: custom log settings" "$(grep -v '^#' "$T/state/logs.conf" | paste -sd' ') $(grep -c 'MaxRetentionSec=3day' "$T/etc-systemd/journald.conf.d/10-bobcat-journal.conf")" "LOG_KEEP_DAYS=3 LOG_MAX_MB=50 1"
+out="$(callr setup_resilience)"
+check "recovery install: re-run is clean and resets to defaults" "$(grep -v '^#' "$T/state/netwatch.conf")" "REBOOT_MINUTES=20"
+
+rm -f "$T/watchdog0"; rm -f "$T/etc-systemd/system.conf.d/10-bobcat-watchdog.conf"
+out="$(callr setup_resilience)"
+[[ ! -e "$T/etc-systemd/system.conf.d/10-bobcat-watchdog.conf" ]] && ok "recovery install: no watchdog drop-in without the device" || bad "recovery install: watchdog without device"
+has   "recovery install: and says why" "no hardware watchdog device" "$out"
+: > "$T/watchdog0"
+
+out="$(callr setup_resilience --no-start)"
+has   "recovery install: --no-start enables without starting" "systemctl enable bobcat-netwatch.timer bobcat-logflush.timer bobcat-logprune.timer" "$(sysc)"
+hasnt "recovery install: --no-start does not start them" "enable --now" "$(sysc)"
+
+out="$(callr setup_resilience --no-resilience)"
+left=0; for f in "$T"/sbin/bobcat-* "$T"/etc-systemd/system/bobcat-* "$T"/etc-systemd/journald.conf.d/10-bobcat-* "$T"/sysctl.d/10-bobcat-* "$T/state/netwatch.conf" "$T/state/logs.conf"; do [[ -e "$f" ]] && left=$((left + 1)); done
+check "recovery removal: files gone" "$left" 0
+has   "recovery removal: timers disabled" "systemctl disable --now bobcat-netwatch.timer" "$(sysc)"
+out="$(callr setup_resilience --no-resilience)"
+has   "recovery removal: removing twice is harmless" "nothing to remove" "$out"
+
+mv "$T/prefix/bobcat-g295/resilience" "$T/prefix/resilience.away"
+out="$(callr setup_resilience)"; rc=$?
+[[ "$rc" -ne 0 && "$out" == *"missing from the bundle"* ]] && ok "recovery install: a bundle without the files fails clearly" || bad "recovery install: missing files" "$out"
+mv "$T/prefix/resilience.away" "$T/prefix/bobcat-g295/resilience"
+unset BOBCAT_SYSTEMD_DIR BOBCAT_SBIN_DIR BOBCAT_SYSCTL_DIR BOBCAT_WATCHDOG_DEV
+
 # ------------------------------------------------------- GitHub public keys
 # A fake GitHub on localhost serves /<user>.keys; anything else is a 404.
 KEYA='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIalice1 alice@laptop'

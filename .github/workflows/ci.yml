@@ -23,7 +23,9 @@ jobs:
             image/lib.sh image/build-image.sh image/build-flasher.sh image/verify-flasher.sh \
             image/firstboot/bobcat-firstboot image/firstboot/test-firstboot.sh \
             image/flasher/init.sh image/flasher/test-init.sh \
-            bobcat-g295/reset_bobcat_g295.sh
+            bobcat-g295/reset_bobcat_g295.sh \
+            bobcat-g295/resilience/bobcat-netwatch bobcat-g295/resilience/test-netwatch.sh \
+            bobcat-g295/resilience/bobcat-logprune bobcat-g295/resilience/test-logprune.sh
 
   test:
     name: Tests
@@ -50,6 +52,10 @@ jobs:
         run: image/firstboot/test-firstboot.sh
       - name: Flasher init script tests (bash and dash)
         run: image/flasher/test-init.sh
+      - name: Self-recovery tests (network watchdog, log pruning)
+        run: |
+          bobcat-g295/resilience/test-netwatch.sh
+          bobcat-g295/resilience/test-logprune.sh
 
   installer:
     name: Build installer bundle

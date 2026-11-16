@@ -120,6 +120,10 @@ frame, the interface adds and strips that byte so ordinary RNodes can
 talk to it. The radio's SPI bus is the stock community kernel's bit-banged
 `spi5`; the reset line is GPIO4_21. Details and evidence: `docs/hardware-notes.md`.
 
+**Self-recovery** is on by default: logs survive a hard reset, a hardware watchdog resets
+the board if it hangs, and a network watchdog restarts Wi-Fi and, as a last resort, reboots
+when the network stays dead. See [`docs/self-recovery.md`](docs/self-recovery.md).
+
 Limits you should know about: the SX1302 cannot receive 62.5 kHz LoRa, so it
 cannot join networks that require it; and Wi-Fi on this board is 2.4 GHz only.
 

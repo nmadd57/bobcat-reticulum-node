@@ -95,6 +95,11 @@ def v_github(v):
             return f"'{user}' is not a GitHub username"
 
 
+def v_reboot(v):
+    if not re.fullmatch(r"\d+", v) or not (int(v) == 0 or 5 <= int(v) <= 1440):
+        return "0 (never) or a number of minutes from 5 to 1440"
+
+
 def v_ifac(v):
     if '"' in v or "\\" in v:
         return 'no " or \\ characters'
@@ -143,6 +148,7 @@ SECTIONS = [
                                             "TXPOWER", "PREAMBLE"]),
     ("Reticulum", ["TRANSPORT", "AUTOINTERFACE", "RNODE_FRAMING", "INTERFACE_MODE", "IFAC_NETNAME",
                    "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]),
+    ("Self-recovery", ["RESILIENCE", "NETWATCH_TARGET", "NETWATCH_REBOOT_MINUTES", "LOG_KEEP_DAYS", "LOG_MAX_MB"]),
     ("First boot", ["SCRUB_BOOT_CONF"]),
 ]
 
@@ -450,6 +456,16 @@ def interview(a, s):
     port = a.ask("Accept Reticulum TCP connections on a port (opens that port; Enter for none)", check=v_int(1, 65535))
     if port:
         s.set("TCP_SERVER_PORT", port)
+
+    print("\n-- Self-recovery")
+    print("  Keeps logs across crashes, resets the board if it hangs, and restarts Wi-Fi (and finally")
+    print("  reboots) if the network stays dead. docs/self-recovery.md has the details.")
+    if a.yes("Keep self-recovery on?", default=True):
+        mins = a.ask("  Reboot after how many minutes without network (0 = never)", "20", v_reboot)
+        if mins != "20":
+            s.set("NETWATCH_REBOOT_MINUTES", mins)
+    else:
+        s.set("RESILIENCE", "no")
 
 
 # ---------------------------------------------------------------- main
