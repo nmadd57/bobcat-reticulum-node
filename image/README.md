@@ -125,3 +125,27 @@ flasher's BusyBox environment has no kernel modules, so FAT is mounted with the
 kernel's built-in `cp437` character table; the kernel's own default table is a
 module and would fail. The script tries `cp437`, `utf8`, `ascii` and the default
 in turn and logs which one worked.
+
+## Re-flashing a unit that already runs this system (known problem)
+
+The flasher card boots on a unit whose internal storage still holds the original (stock)
+bootloader. **After the first successful flash, a unit is not guaranteed to boot the card
+again.** Observed on a G295: with the card inserted, the unit booted the system already on
+its eMMC and never ran the flasher (no `/boot/bobcat-flasher.log`, no flashing LEDs).
+
+What is known:
+- The U-Boot in these images is built with `boot_targets=mmc1 mmc0 ...`. On this board Linux
+  names the eMMC `mmcblk1` and the SD slot `mmcblk0`; that the U-Boot's `mmc1` is the eMMC
+  (so the eMMC is tried before the card) is an inference from that numbering, not something
+  measured on the console.
+- The flasher image itself has a valid Rockchip bootloader (header `RKNS` at sector 64, U-Boot
+  FIT at sector 16384), so a bad build is not the explanation.
+
+**Do not wipe the eMMC bootloader sectors to force the card to boot** (for example by zeroing
+sectors 64-16383 of the eMMC). On the unit this was tried on, it left the board with no LEDs and
+no network, in the chip's USB Maskrom mode with a second, freshly written card also ignored. Recovering
+needs a USB loader (`rkdeveloptool`) and a way to write the eMMC over USB.
+
+The first flash of a unit (original software still on the eMMC) is the path that has been tested.
+How to re-flash an already converted unit is not solved yet.
+
