@@ -75,9 +75,25 @@ If the slow blink shows: the OS is installed but the settings are not on it. Put
 move the eMMC) before its first boot, or run the installer by hand afterwards.
 
 ## Using the standalone SD image
-Write it like any SD image. Before the first boot put the same settings files on
-its small FAT boot partition (label `armbi_boot`). It then installs itself the
-same way.
+Write it like any SD image, then **unplug and replug the card** so your computer
+shows the new partitions (an old partition table can linger and show a partition,
+such as `BOBCFG` from the flasher, that no longer exists). Before the first boot put
+the same settings files on its small FAT boot partition, the 256 MB drive labelled
+`armbi_boot`. It then installs itself the same way.
+
+The image has no `BOBCFG` partition; that exists only on the flasher. The large
+root partition (`armbi_root`) has its own `boot` folder, which the FAT partition hides
+on a running system. A file placed there is also found (the log says so), but the
+FAT partition is the intended place. The first-boot log shows what was found:
+`/var/log/bobcat-firstboot.log`.
+
+Writing this image over a card that held the flasher leaves the flasher's old data
+behind the new partition table. The first boot grows the root partition across the
+whole card and overwrites it, so settings stored there are lost.
+
+The card and the unit's eMMC carry identical filesystem UUIDs when both were made from the
+same base image, and the kernel is told `root=UUID=...`. With both attached, which one
+is mounted as `/` is not guaranteed.
 
 ## Building
 In CI: **Actions → Build images → Run workflow**, or push a `v*` tag to build

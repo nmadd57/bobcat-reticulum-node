@@ -12,6 +12,11 @@
 #   /boot/bobcat-authorized_keys    optional: SSH public keys for root
 #   /boot/bobcat-reticulum.conf     optional: a complete Reticulum config
 #
+# "/boot" is the small FAT partition (label armbi_boot). The large root partition
+# has its own, empty /boot folder, which the FAT partition hides once mounted. From
+# a computer both look like "the boot folder", so a file dropped in the root
+# partition's /boot is found too (looked for second, and said so in the log).
+#
 # This script copies them into the installed system under /etc/bobcat-lora/
 # (root-only), merges them with any settings baked into the image, and runs the
 # bundled installer with the result. The installer does all the parsing and
@@ -30,9 +35,36 @@ SEED="${BOBCAT_SEED:-/etc/bobcat-lora}"
 BOOT_DIR="${BOBCAT_BOOT_DIR:-/boot}"
 SKIP_SYSTEM="${BOBCAT_TEST_SKIP_SYSTEM:-0}"   # tests: no apt-mark/systemctl/time wait
 
+# The root filesystem's own /boot folder, hidden under the FAT mount. Tests set
+# BOBCAT_HIDDEN_BOOT_DIR directly instead of bind-mounting.
+HIDDEN_BOOT_DIR="${BOBCAT_HIDDEN_BOOT_DIR:-}"
+HIDDEN_MP=""
+if [[ -z "$HIDDEN_BOOT_DIR" && "$SKIP_SYSTEM" != "1" ]] && mountpoint -q "$BOOT_DIR" 2>/dev/null; then
+    HIDDEN_MP="$(mktemp -d)"
+    if mount --bind / "$HIDDEN_MP" 2>/dev/null; then
+        HIDDEN_BOOT_DIR="$HIDDEN_MP$BOOT_DIR"
+    fi
+fi
+trap '[[ -n "$HIDDEN_MP" ]] && { umount "$HIDDEN_MP" 2>/dev/null; rmdir "$HIDDEN_MP" 2>/dev/null; }' EXIT
+
+# Where a settings file was found: first the FAT boot partition, then the root
+# filesystem's own /boot folder.
+locate() {   # locate <file name>: prints the path, or nothing
+    local d
+    for d in "$BOOT_DIR" "$HIDDEN_BOOT_DIR"; do
+        [[ -n "$d" && -r "$d/$1" ]] && { printf '%s\n' "$d/$1"; return 0; }
+    done
+    return 1
+}
+note_source() {   # note_source <path>: say so when it is not the FAT partition
+    [[ -n "$HIDDEN_BOOT_DIR" && "$1" == "$HIDDEN_BOOT_DIR/"* ]] &&
+        echo "note: $(basename "$1") was found in the root filesystem's /boot folder, not on the FAT boot partition; that works, but the FAT partition (armbi_boot) is the intended place"
+    return 0
+}
+
 BAKED="$SEED/install.conf"            # baked into the image at build time (optional)
 EFFECTIVE="$SEED/effective.conf"      # what the installer is given
-BOOT_CONF="$BOOT_DIR/bobcat-install.conf"
+BOOT_CONF="$(locate bobcat-install.conf || true)"
 
 mkdir -p "$STATE"
 exec > >(tee -a "$LOG") 2>&1
@@ -55,8 +87,9 @@ key_is_set() { grep -qE "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" "
 # Copy one optional side file into the system and point the config at it,
 # unless the settings file already names one itself.
 attach_side_file() {   # attach_side_file <name on boot partition> <name here> <KEY>
-    local src="$BOOT_DIR/$1" dest="$SEED/files/$2" key="$3"
-    [[ -r "$src" ]] || return 0
+    local src dest="$SEED/files/$2" key="$3"
+    src="$(locate "$1")" || return 0
+    note_source "$src"
     if key_is_set "$key"; then
         echo "$1: not used, the settings file already sets $key"
         return 0
@@ -75,18 +108,19 @@ seed_config() {
         echo "reading settings baked into the image"
         { echo "# --- baked into the image"; tr -d '\r' < "$BAKED"; echo; } >> "$EFFECTIVE"
     fi
-    if [[ -r "$BOOT_CONF" ]]; then
+    if [[ -n "$BOOT_CONF" && -r "$BOOT_CONF" ]]; then
+        note_source "$BOOT_CONF"
         echo "reading $BOOT_CONF"
         { echo "# --- $BOOT_CONF"; tr -d '\r' < "$BOOT_CONF"; echo; } >> "$EFFECTIVE"
     else
-        echo "no $BOOT_CONF: installing with defaults (wired network needed)"
+        echo "no bobcat-install.conf in $BOOT_DIR${HIDDEN_BOOT_DIR:+ or $HIDDEN_BOOT_DIR}: installing with defaults (wired network needed)"
     fi
 
     attach_side_file bobcat-authorized_keys authorized_keys SSH_AUTHORIZED_KEYS_FILE
     attach_side_file bobcat-reticulum.conf  reticulum.conf  RETICULUM_CONFIG_FILE
     # A complete netplan file replaces the Wi-Fi/Ethernet settings, so it cannot
     # be combined with them.
-    if [[ -r "$BOOT_DIR/bobcat-netplan.yaml" ]] &&
+    if [[ -n "$(locate bobcat-netplan.yaml)" ]] &&
        grep -qE '^[[:space:]]*(WIFI_SSID|ETH_MODE[[:space:]]*=[[:space:]]*(dhcp|static))' "$EFFECTIVE"; then
         echo "bobcat-netplan.yaml: not used, the settings file already configures Wi-Fi/Ethernet"
     else
@@ -117,7 +151,7 @@ echo "== $(date -Is) first-boot install complete"
 
 # Do not leave secrets sitting in plain text on the FAT partition (readable from
 # any computer). The root-only copy under $SEED keeps them for re-runs.
-if [[ -w "$BOOT_CONF" ]] && ! grep -qE '^[[:space:]]*SCRUB_BOOT_CONF[[:space:]]*=[[:space:]]*(no|false|0|off)' "$BOOT_CONF" &&
+if [[ -n "$BOOT_CONF" && -w "$BOOT_CONF" ]] && ! grep -qE '^[[:space:]]*SCRUB_BOOT_CONF[[:space:]]*=[[:space:]]*(no|false|0|off)' "$BOOT_CONF" &&
    grep -qE '^[[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE)[[:space:]]*=[^[:space:]]' "$BOOT_CONF"; then
     sed -i -E 's/^([[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE)[[:space:]]*=).*/\1/' "$BOOT_CONF" &&
         echo "cleared passphrases in $BOOT_CONF"

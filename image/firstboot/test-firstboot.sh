@@ -28,7 +28,7 @@ exit "${STUB_RC:-0}"
 STUB
 chmod +x "$T/stub"
 
-reset_dirs() { rm -rf "${T:?}/state" "${T:?}/seed" "${T:?}/boot" "${T:?}/args" "${T:?}/conf"; mkdir -p "$T/boot"; }
+reset_dirs() { rm -rf "${T:?}/state" "${T:?}/seed" "${T:?}/boot" "${T:?}/hidden" "${T:?}/args" "${T:?}/conf"; mkdir -p "$T/boot"; }
 
 run() {   # run [ENV=val ...]
     OUT="$(env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" \
@@ -137,6 +137,39 @@ mkdir -p "$T/state"; touch "$T/state/firstboot.done"
 OUT="$(env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCAT_SEED="$T/seed" \
     BOBCAT_BOOT_DIR="$T/boot" BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_TEST_ARGS="$T/args" "$SCRIPT" 2>&1)"
 [[ ! -e "$T/args" ]] && ok "done: installer not run again" || bad "done: installer not run again"
+
+# 9. the settings are in the root filesystem's own /boot folder (hidden under the FAT mount)
+reset_dirs
+mkdir -p "$T/hidden"
+printf 'WIFI_SSID=HiddenDirNet\nWIFI_PASS=secretsecret\nHOSTNAME=from-root-boot\n' > "$T/hidden/bobcat-install.conf"
+run BOBCAT_HIDDEN_BOOT_DIR="$T/hidden"
+check "hidden /boot: exit 0" "$RC" 0
+has   "hidden /boot: settings are read" 'HOSTNAME=from-root-boot' "$CONF"
+has   "hidden /boot: says where it found them" "root filesystem's /boot folder" "$OUT"
+hasnt "hidden /boot: not treated as missing" "installing with defaults" "$OUT"
+check "hidden /boot: passphrase cleared in that file after success" "$(grep -c '^WIFI_PASS=$' "$T/hidden/bobcat-install.conf")" 1
+
+# 10. the FAT partition wins when both have a file
+reset_dirs
+mkdir -p "$T/hidden"
+printf 'HOSTNAME=from-fat\n' > "$T/boot/bobcat-install.conf"
+printf 'HOSTNAME=from-root-boot\n' > "$T/hidden/bobcat-install.conf"
+run BOBCAT_HIDDEN_BOOT_DIR="$T/hidden"
+has   "both: the FAT partition's file is used" 'HOSTNAME=from-fat' "$CONF"
+hasnt "both: the other file is ignored" 'from-root-boot' "$CONF"
+
+# 11. side files are found in the hidden folder too
+reset_dirs
+mkdir -p "$T/hidden"
+printf 'ssh-ed25519 AAAA key\n' > "$T/hidden/bobcat-authorized_keys"
+run BOBCAT_HIDDEN_BOOT_DIR="$T/hidden"
+[[ -f "$T/seed/files/authorized_keys" ]] && ok "hidden /boot: side file is copied" || bad "hidden /boot: side file is copied"
+
+# 12. nothing anywhere: the message names both places
+reset_dirs
+mkdir -p "$T/hidden"
+run BOBCAT_HIDDEN_BOOT_DIR="$T/hidden"
+has   "nothing found: defaults message names both folders" "$T/boot or $T/hidden" "$OUT"
 
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]
