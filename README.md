@@ -112,7 +112,7 @@ workflows run.
 |---|---|
 | Verified on a real unit | TX/RX with another node through Reticulum; service starts at boot; installer re-runs; radio-setting flags; Wi-Fi (hidden SSID) and Ethernet through netplan |
 | Tested in CI / locally only | the settings parser and every validation (dry run); first-boot and flasher script logic (bash and dash); image and flasher patching, partition tables, FAT and mounts; the Wi-Fi shortcut's file generation and the auto-revert mechanism |
-| **Known problem** | the flasher card is not guaranteed to boot on a unit that already runs this system (it booted the eMMC and ignored the card); see [`image/README.md`](image/README.md#re-flashing-a-unit-that-already-runs-this-system-known-problem). Do not wipe the eMMC bootloader to force it: that left a unit in USB Maskrom mode |
+| **Known problem** | the flasher card is not guaranteed to boot on a unit that already runs this system (it booted the eMMC and ignored the card); see [`image/README.md`](image/README.md#re-flashing-a-unit-that-already-runs-this-system-known-problem). Do not wipe the eMMC bootloader to force it: that left a unit in USB Maskrom mode; recovery notes: [`docs/maskrom-recovery.md`](docs/maskrom-recovery.md) |
 | **Not tested** | the flasher's settings copy inside its BusyBox environment (the first flash found no settings; the v0.2.2 scan and log are untested on hardware); the Wi-Fi shortcut joining a brand-new network; PXE / network install and MAAS (design only, with a blocker: the bootloader has no EFI) |
 
 ## Credits and licenses

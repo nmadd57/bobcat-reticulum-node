@@ -149,3 +149,4 @@ needs a USB loader (`rkdeveloptool`) and a way to write the eMMC over USB.
 The first flash of a unit (original software still on the eMMC) is the path that has been tested.
 How to re-flash an already converted unit is not solved yet.
 
+A recovery that worked after the eMMC bootloader had been wiped is written up in [`docs/maskrom-recovery.md`](../docs/maskrom-recovery.md).
