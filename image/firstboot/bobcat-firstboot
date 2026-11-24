@@ -62,13 +62,13 @@ note_source() {   # note_source <path>: say so when it is not the FAT partition
     return 0
 }
 
-# Progress on the board's status LED (sysfs, best effort: a missing LED never matters):
+# Progress on the board's blue power LED (led-pwr; the separate led-status shows nothing visible here) (sysfs, best effort: a missing LED never matters):
 #   fast blink  installing          slow blink  last attempt failed, retrying
 #   steady on   install complete
 # The kernel's "timer" trigger is a module here; when it cannot be loaded the LED
 # falls back to "heartbeat" (blinking = installing) and off (= waiting to retry).
 LED_DIR="${BOBCAT_LED_DIR:-/sys/class/leds}"
-LED_NAME="${BOBCAT_LED_NAME:-led-status}"
+LED_NAME="${BOBCAT_LED_NAME:-led-pwr}"
 led_timer() {   # led_timer <on ms> <off ms>: returns 1 when the timer trigger is not available
     local d="$LED_DIR/$LED_NAME"
     [[ "$SKIP_SYSTEM" == "1" ]] || modprobe ledtrig-timer 2>/dev/null || true

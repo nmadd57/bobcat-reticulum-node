@@ -81,9 +81,9 @@ such as `BOBCFG` from the flasher, that no longer exists). Before the first boot
 the same settings files on its small FAT boot partition, the 256 MB drive labelled
 `armbi_boot`. It then installs itself the same way.
 
-**LED during the first boot** (the board's status LED, `led-status`): fast blink while the node
+**LED during the first boot** (the board's blue power LED, `led-pwr`): fast blink while the node
 installs, slow blink when an attempt failed and is waiting to retry (about two minutes), steady on
-once the install is complete. The steady blue LED is the power LED and does not change. If the kernel
+once the install is complete. If the kernel
 cannot load its `timer` LED trigger, the LED shows `heartbeat` while installing and goes off while
 waiting to retry. The eMMC flasher uses its own patterns (above).
 

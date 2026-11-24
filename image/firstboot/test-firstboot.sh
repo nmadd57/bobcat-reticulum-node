@@ -25,8 +25,8 @@ cat > "$T/stub" <<'STUB'
 for a in "$@"; do printf '%s\n' "$a" >> "$BOBCAT_TEST_ARGS"; done
 [[ "$1" == --config && -r "$2" ]] && cat "$2" > "$BOBCAT_TEST_CONF_COPY"
 if [[ -n "${BOBCAT_LED_DIR:-}" ]]; then
-    { printf 'trigger=%s on=%s off=%s\n' "$(cat "$BOBCAT_LED_DIR/led-status/trigger")" \
-        "$(cat "$BOBCAT_LED_DIR/led-status/delay_on" 2>/dev/null)" "$(cat "$BOBCAT_LED_DIR/led-status/delay_off" 2>/dev/null)"; } > "$BOBCAT_TEST_LED_DURING"
+    { printf 'trigger=%s on=%s off=%s\n' "$(cat "$BOBCAT_LED_DIR/led-pwr/trigger")" \
+        "$(cat "$BOBCAT_LED_DIR/led-pwr/delay_on" 2>/dev/null)" "$(cat "$BOBCAT_LED_DIR/led-pwr/delay_off" 2>/dev/null)"; } > "$BOBCAT_TEST_LED_DURING"
 fi
 exit "${STUB_RC:-0}"
 STUB
@@ -177,24 +177,24 @@ has   "nothing found: defaults message names both folders" "$T/boot or $T/hidden
 
 # 13. status LED: fast blink while installing, steady on when complete, slow blink on failure
 mkled() {   # mkled <trigger file content>
-    rm -rf "$T/led"; mkdir -p "$T/led/led-status"; printf '%s\n' "$1" > "$T/led/led-status/trigger"; : > "$T/led/led-status/brightness"
+    rm -rf "$T/led"; mkdir -p "$T/led/led-pwr"; printf '%s\n' "$1" > "$T/led/led-pwr/trigger"; : > "$T/led/led-pwr/brightness"
 }
 reset_dirs; mkled "none timer [heartbeat] default-on"
 run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during"
 check "led: fast blink while the installer runs" "$(cat "$T/led-during")" "trigger=timer on=150 off=150"
-check "led: complete is steady on (trigger none)" "$(cat "$T/led/led-status/trigger")" none
-check "led: complete is steady on (brightness 1)" "$(cat "$T/led/led-status/brightness")" 1
+check "led: complete is steady on (trigger none)" "$(cat "$T/led/led-pwr/trigger")" none
+check "led: complete is steady on (brightness 1)" "$(cat "$T/led/led-pwr/brightness")" 1
 reset_dirs; mkled "none timer [heartbeat] default-on"
 run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during" STUB_RC=1
-check "led: failure is a slow blink (on)" "$(cat "$T/led/led-status/delay_on")" 1000
-check "led: failure is a slow blink (off)" "$(cat "$T/led/led-status/delay_off")" 1000
+check "led: failure is a slow blink (on)" "$(cat "$T/led/led-pwr/delay_on")" 1000
+check "led: failure is a slow blink (off)" "$(cat "$T/led/led-pwr/delay_off")" 1000
 # without the timer trigger (a module that may not load): heartbeat while installing, off when retrying
 reset_dirs; mkled "none [heartbeat] default-on"
 run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during"
 check "led, no timer trigger: heartbeat while installing" "$(cut -d' ' -f1 "$T/led-during")" "trigger=heartbeat"
 reset_dirs; mkled "none [heartbeat] default-on"
 run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during" STUB_RC=1
-check "led, no timer trigger: off while waiting to retry" "$(cat "$T/led/led-status/brightness")" 0
+check "led, no timer trigger: off while waiting to retry" "$(cat "$T/led/led-pwr/brightness")" 0
 reset_dirs
 run BOBCAT_LED_DIR="$T/no-such-led-dir"
 check "led: a missing LED does not break the install" "$RC" 0
