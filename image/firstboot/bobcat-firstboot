@@ -33,6 +33,7 @@ DONE="$STATE/firstboot.done"
 LOG="${BOBCAT_LOG:-/var/log/bobcat-firstboot.log}"
 SEED="${BOBCAT_SEED:-/etc/bobcat-lora}"
 BOOT_DIR="${BOBCAT_BOOT_DIR:-/boot}"
+RETRY_WAIT="${BOBCAT_RETRY_WAIT:-120}"          # wait after a failed attempt, blinking red
 SKIP_SYSTEM="${BOBCAT_TEST_SKIP_SYSTEM:-0}"   # tests: no apt-mark/systemctl/time wait
 
 # The root filesystem's own /boot folder, hidden under the FAT mount. Tests set
@@ -45,7 +46,6 @@ if [[ -z "$HIDDEN_BOOT_DIR" && "$SKIP_SYSTEM" != "1" ]] && mountpoint -q "$BOOT_
         HIDDEN_BOOT_DIR="$HIDDEN_MP$BOOT_DIR"
     fi
 fi
-trap '[[ -n "$HIDDEN_MP" ]] && { umount "$HIDDEN_MP" 2>/dev/null; rmdir "$HIDDEN_MP" 2>/dev/null; }' EXIT
 
 # Where a settings file was found: first the FAT boot partition, then the root
 # filesystem's own /boot folder.
@@ -62,29 +62,48 @@ note_source() {   # note_source <path>: say so when it is not the FAT partition
     return 0
 }
 
-# Progress on the board's blue power LED (led-pwr; the separate led-status shows nothing visible here) (sysfs, best effort: a missing LED never matters):
-#   fast blink  installing          slow blink  last attempt failed, retrying
-#   steady on   install complete
-# The kernel's "timer" trigger is a module here; when it cannot be loaded the LED
-# falls back to "heartbeat" (blinking = installing) and off (= waiting to retry).
-LED_DIR="${BOBCAT_LED_DIR:-/sys/class/leds}"
-LED_NAME="${BOBCAT_LED_NAME:-led-pwr}"
-led_timer() {   # led_timer <on ms> <off ms>: returns 1 when the timer trigger is not available
-    local d="$LED_DIR/$LED_NAME"
-    [[ "$SKIP_SYSTEM" == "1" ]] || modprobe ledtrig-timer 2>/dev/null || true
-    grep -qw timer "$d/trigger" 2>/dev/null || return 1
-    { echo timer > "$d/trigger"; echo "$1" > "$d/delay_on"; echo "$2" > "$d/delay_off"; } 2>/dev/null
+# Progress on the board's RGB LED. It sits on three GPIO lines (bank 4, lines 0-2: sysfs
+# 128 blue, 129 green, 130 red; high = on), the same lines the flasher uses. The kernel's
+# /sys/class/leds entries do not drive it. Best effort: a missing GPIO never matters.
+#   blue, fast blink   installing
+#   red, slow blink    the last attempt failed; it waits about two minutes, then retries
+#   green, steady      install complete
+# sysfs-exported lines stay driven after this script exits, so a steady colour lasts.
+LED_BLUE="${BOBCAT_LED_BLUE:-128}"
+LED_GREEN="${BOBCAT_LED_GREEN:-129}"
+LED_RED="${BOBCAT_LED_RED:-130}"
+GPIO_DIR="${BOBCAT_GPIO_DIR:-/sys/class/gpio}"
+LED_PID=""
+led_line() {   # led_line <gpio> 0|1
+    [[ -e "$GPIO_DIR/gpio$1" ]] || echo "$1" > "$GPIO_DIR/export" 2>/dev/null
+    { echo out > "$GPIO_DIR/gpio$1/direction"; echo "$2" > "$GPIO_DIR/gpio$1/value"; } 2>/dev/null
+    return 0
+}
+led_show() {   # led_show <blue 0|1> <green 0|1> <red 0|1>
+    led_line "$LED_BLUE" "$1"; led_line "$LED_GREEN" "$2"; led_line "$LED_RED" "$3"
+}
+led_stop() {
+    if [[ -n "$LED_PID" ]]; then
+        kill "$LED_PID" 2>/dev/null
+        wait "$LED_PID" 2>/dev/null
+        LED_PID=""
+    fi
+    return 0
+}
+led_blink() {   # led_blink <blue> <green> <red> <seconds on> <seconds off>
+    ( while :; do led_show "$1" "$2" "$3"; sleep "$4"; led_show 0 0 0; sleep "$5"; done ) >/dev/null 2>&1 &
+    LED_PID=$!
 }
 led() {   # led busy|retry|done
-    local d="$LED_DIR/$LED_NAME"
-    [[ -d "$d" ]] || return 0
+    led_stop
     case "$1" in
-        busy)  led_timer 150 150 || { echo heartbeat > "$d/trigger"; } 2>/dev/null ;;
-        retry) led_timer 1000 1000 || { echo none > "$d/trigger"; echo 0 > "$d/brightness"; } 2>/dev/null ;;
-        done)  { echo none > "$d/trigger"; echo 1 > "$d/brightness"; } 2>/dev/null ;;
+        busy)  led_blink 1 0 0 0.15 0.15 ;;
+        retry) led_blink 0 0 1 1 1 ;;
+        done)  led_show 0 1 0 ;;
     esac
     return 0
 }
+trap 'led_stop; [[ -n "$HIDDEN_MP" ]] && { umount "$HIDDEN_MP" 2>/dev/null; rmdir "$HIDDEN_MP" 2>/dev/null; }' EXIT
 
 BAKED="$SEED/install.conf"            # baked into the image at build time (optional)
 EFFECTIVE="$SEED/effective.conf"      # what the installer is given
@@ -167,8 +186,9 @@ echo "clock: $(date -Is) synchronized=$(timedatectl show -p NTPSynchronized --va
 
 echo "running the installer with $EFFECTIVE"
 if ! "$INSTALLER" --config "$EFFECTIVE"; then
-    echo "== installer failed; systemd will retry"
+    echo "== installer failed; retrying in about ${RETRY_WAIT}s"
     led retry
+    sleep "$RETRY_WAIT"      # keep running so the red blink continues; systemd restarts us right after
     exit 1
 fi
 

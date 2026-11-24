@@ -9,9 +9,10 @@ StartLimitBurst=5
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/bobcat-firstboot
-# No internet yet, a slow DHCP lease, or a failed download: try again.
+# No internet yet, a slow DHCP lease, or a failed download: try again. The script itself waits
+# about two minutes after a failure (blinking red), so systemd restarts it almost at once.
 Restart=on-failure
-RestartSec=120
+RestartSec=5
 TimeoutStartSec=3600
 
 [Install]

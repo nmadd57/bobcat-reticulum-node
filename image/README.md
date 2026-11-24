@@ -81,11 +81,10 @@ such as `BOBCFG` from the flasher, that no longer exists). Before the first boot
 the same settings files on its small FAT boot partition, the 256 MB drive labelled
 `armbi_boot`. It then installs itself the same way.
 
-**LED during the first boot** (the board's blue power LED, `led-pwr`): fast blink while the node
-installs, slow blink when an attempt failed and is waiting to retry (about two minutes), steady on
-once the install is complete. If the kernel
-cannot load its `timer` LED trigger, the LED shows `heartbeat` while installing and goes off while
-waiting to retry. The eMMC flasher uses its own patterns (above).
+**LED during the first boot:** the board's RGB LED (three GPIO lines, the same ones the flasher uses; the
+kernel's `/sys/class/leds` entries do not drive it) shows **blue, blinking fast** while the node installs,
+**red, blinking slowly** when an attempt failed (it waits about two minutes, then retries), and **green, steady** once the
+install is complete. The eMMC flasher uses its own patterns (above).
 
 The image has no `BOBCFG` partition; that exists only on the flasher. The large
 root partition (`armbi_root`) has its own `boot` folder, which the FAT partition hides

@@ -24,19 +24,21 @@ cat > "$T/stub" <<'STUB'
 : > "$BOBCAT_TEST_ARGS"
 for a in "$@"; do printf '%s\n' "$a" >> "$BOBCAT_TEST_ARGS"; done
 [[ "$1" == --config && -r "$2" ]] && cat "$2" > "$BOBCAT_TEST_CONF_COPY"
-if [[ -n "${BOBCAT_LED_DIR:-}" ]]; then
-    { printf 'trigger=%s on=%s off=%s\n' "$(cat "$BOBCAT_LED_DIR/led-pwr/trigger")" \
-        "$(cat "$BOBCAT_LED_DIR/led-pwr/delay_on" 2>/dev/null)" "$(cat "$BOBCAT_LED_DIR/led-pwr/delay_off" 2>/dev/null)"; } > "$BOBCAT_TEST_LED_DURING"
+if [[ -n "${BOBCAT_GPIO_DIR:-}" ]]; then
+    : > "$BOBCAT_TEST_LED_DURING"
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        cat "$BOBCAT_GPIO_DIR/gpio128/value" >> "$BOBCAT_TEST_LED_DURING"; sleep 0.05
+    done
 fi
 exit "${STUB_RC:-0}"
 STUB
 chmod +x "$T/stub"
 
-reset_dirs() { rm -rf "${T:?}/led" "${T:?}/state" "${T:?}/seed" "${T:?}/boot" "${T:?}/hidden" "${T:?}/args" "${T:?}/conf"; mkdir -p "$T/boot"; }
+reset_dirs() { rm -rf "${T:?}/gpio" "${T:?}/state" "${T:?}/seed" "${T:?}/boot" "${T:?}/hidden" "${T:?}/args" "${T:?}/conf"; mkdir -p "$T/boot"; }
 
 run() {   # run [ENV=val ...]
     OUT="$(env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" \
-        BOBCAT_SEED="$T/seed" BOBCAT_BOOT_DIR="$T/boot" BOBCAT_TEST_SKIP_SYSTEM=1 \
+        BOBCAT_SEED="$T/seed" BOBCAT_BOOT_DIR="$T/boot" BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_RETRY_WAIT=0 \
         BOBCAT_TEST_ARGS="$T/args" BOBCAT_TEST_CONF_COPY="$T/conf" "$@" "$SCRIPT" 2>&1)"
     RC=$?
     ARGS="$(cat "$T/args" 2>/dev/null || true)"
@@ -175,29 +177,35 @@ mkdir -p "$T/hidden"
 run BOBCAT_HIDDEN_BOOT_DIR="$T/hidden"
 has   "nothing found: defaults message names both folders" "$T/boot or $T/hidden" "$OUT"
 
-# 13. status LED: fast blink while installing, steady on when complete, slow blink on failure
-mkled() {   # mkled <trigger file content>
-    rm -rf "$T/led"; mkdir -p "$T/led/led-pwr"; printf '%s\n' "$1" > "$T/led/led-pwr/trigger"; : > "$T/led/led-pwr/brightness"
-}
-reset_dirs; mkled "none timer [heartbeat] default-on"
-run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during"
-check "led: fast blink while the installer runs" "$(cat "$T/led-during")" "trigger=timer on=150 off=150"
-check "led: complete is steady on (trigger none)" "$(cat "$T/led/led-pwr/trigger")" none
-check "led: complete is steady on (brightness 1)" "$(cat "$T/led/led-pwr/brightness")" 1
-reset_dirs; mkled "none timer [heartbeat] default-on"
-run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during" STUB_RC=1
-check "led: failure is a slow blink (on)" "$(cat "$T/led/led-pwr/delay_on")" 1000
-check "led: failure is a slow blink (off)" "$(cat "$T/led/led-pwr/delay_off")" 1000
-# without the timer trigger (a module that may not load): heartbeat while installing, off when retrying
-reset_dirs; mkled "none [heartbeat] default-on"
-run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during"
-check "led, no timer trigger: heartbeat while installing" "$(cut -d' ' -f1 "$T/led-during")" "trigger=heartbeat"
-reset_dirs; mkled "none [heartbeat] default-on"
-run BOBCAT_LED_DIR="$T/led" BOBCAT_TEST_LED_DURING="$T/led-during" STUB_RC=1
-check "led, no timer trigger: off while waiting to retry" "$(cat "$T/led/led-pwr/brightness")" 0
+# 13. RGB LED on GPIO lines 128 (blue), 129 (green), 130 (red): blue blink while installing,
+#     red steady after a failed attempt, green steady when complete
+mkgpio() { rm -rf "$T/gpio"; mkdir -p "$T/gpio"; : > "$T/gpio/export"; local g; for g in 128 129 130; do mkdir -p "$T/gpio/gpio$g"; : > "$T/gpio/gpio$g/direction"; echo 0 > "$T/gpio/gpio$g/value"; done; }
+val() { cat "$T/gpio/gpio$1/value"; }
+reset_dirs; mkgpio
+run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during"
+SEEN="$(tr -d '\n' < "$T/led-during")"
+[[ "$SEEN" == *0* && "$SEEN" == *1* ]] && ok "led: blue blinks while the installer runs (saw $SEEN)" || bad "led: blue blinks while the installer runs" "saw [$SEEN]"
+check "led: complete is green (blue off)"  "$(val 128)" 0
+check "led: complete is green (green on)"  "$(val 129)" 1
+check "led: complete is green (red off)"   "$(val 130)" 0
+check "led: lines are outputs" "$(cat "$T/gpio/gpio129/direction")" out
+# failure: red blinks slowly during the wait, then the script exits 1 so systemd retries
+reset_dirs; mkgpio
+env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCAT_SEED="$T/seed" BOBCAT_BOOT_DIR="$T/boot" \
+    BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_TEST_ARGS="$T/args" BOBCAT_TEST_CONF_COPY="$T/conf" BOBCAT_GPIO_DIR="$T/gpio" \
+    BOBCAT_RETRY_WAIT=2.5 STUB_RC=1 "$SCRIPT" >"$T/fail.out" 2>&1 &
+FAILPID=$!
+sleep 0.3; : > "$T/red-seen"
+for _ in $(seq 1 40); do cat "$T/gpio/gpio130/value" >> "$T/red-seen"; sleep 0.05; done
+SEEN="$(tr -d '\n' < "$T/red-seen")"
+[[ "$SEEN" == *0* && "$SEEN" == *1* ]] && ok "failure: red blinks while waiting to retry" || bad "failure: red blinks while waiting to retry" "saw [$SEEN]"
+check "failure: blue and green stay off" "$(cat "$T/gpio/gpio128/value")$(cat "$T/gpio/gpio129/value")" 00
+wait "$FAILPID"; FRC=$?
+check "failure: exit 1 after the wait" "$FRC" 1
+[[ ! -e "$T/state/firstboot.done" ]] && ok "failure: no done marker" || bad "failure: no done marker"
 reset_dirs
-run BOBCAT_LED_DIR="$T/no-such-led-dir"
-check "led: a missing LED does not break the install" "$RC" 0
+run BOBCAT_GPIO_DIR="$T/no-such-gpio-dir"
+check "led: a missing GPIO interface does not break the install" "$RC" 0
 
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]
