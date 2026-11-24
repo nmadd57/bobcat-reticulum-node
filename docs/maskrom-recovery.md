@@ -1,4 +1,30 @@
-# Recovering a G295 that boots nothing (USB Maskrom)
+# Recovering a G295 that boots nothing
+
+**Try the Recovery button first** (next section). The Maskrom method further down is the fallback for a
+board whose bootloader is damaged, where the button cannot work.
+
+## Recovery button: U-Boot download mode (preferred)
+
+The board has **Reset** and **Recovery** buttons next to its USB debug port. Holding Recovery while resetting
+makes the board's own U-Boot enter download mode and present the eMMC to a host over the **OTG** port.
+
+Verified on one unit:
+- U-Boot has the `rockusb` command, ADC-key support and messages "download key pressed" / "enter rockusb/bootrom
+  download mode" (strings in the Armbian image's U-Boot).
+- With the OTG port connected to a host: hold **Recovery**, press and release **Reset**, release Recovery after
+  about two seconds.
+- The host then sees `2207:350a`, `bcdDevice 0223`, product **"USB download gadget"** (Maskrom has no product
+  string and `bcdDevice 0100`).
+- `rkdeveloptool ld` reports **Loader**. `rci` (chip info), `rid`, `rfi` (Samsung eMMC, 59,640 MB) and `ppt`
+  (the eMMC's GPT) all worked. These are read-only.
+
+Not yet tried: writing with `rkdeveloptool wl`, reading with `rl`, `ef` (erase). In Loader mode these are the normal
+way to flash and no `db` loader is needed, which is what failed in Maskrom below.
+
+The "USB debug" port next to the buttons is not a serial bridge on this unit: connected to a host it presented
+nothing. The board's real debug UART is `ttyS2` at 1,500,000 baud (kernel `console=ttyS2,1500000`).
+
+## Maskrom (fallback)
 
 What follows was done on one Bobcat Miner 300 G295 (RK3566/RK3568-class board, 58 GiB Samsung eMMC).
 It is a record of what worked and what did not, not a supported procedure. Anything marked
