@@ -1,7 +1,9 @@
 # Recovering a G295 that boots nothing
 
-**Try the Recovery button first** (next section). The Maskrom method further down is the fallback for a
-board whose bootloader is damaged, where the button cannot work.
+The Recovery button (next section) gives a quick, reliable way to **read and rewrite the first 32 MiB** of the eMMC:
+the partition table and the bootloader. It **cannot flash a whole OS image**: on the unit tested, reads and writes
+beyond sector 65,535 do not work. The Maskrom method further down is the fallback when the bootloader itself is
+damaged and the button cannot work.
 
 ## Recovery button: U-Boot download mode (preferred)
 
@@ -18,8 +20,16 @@ Verified on one unit:
 - `rkdeveloptool ld` reports **Loader**. `rci` (chip info), `rid`, `rfi` (Samsung eMMC, 59,640 MB) and `ppt`
   (the eMMC's GPT) all worked. These are read-only.
 
-Not yet tried: writing with `rkdeveloptool wl`, reading with `rl`, `ef` (erase). In Loader mode these are the normal
-way to flash and no `db` loader is needed, which is what failed in Maskrom below.
+**Limit found (tested):** the first 32 MiB (sectors 0-65,535) can be read and written; beyond that it cannot.
+- `rkdeveloptool wl 0 <image>` of a 2.8 GB image reported no error, but read back as correct only for the first
+  32 MiB. From sector 65,536 on, reads return a repeated `0xCC` filler.
+- A write-then-read test of 4 KiB at sectors 60,000 (OK), 65,536, 70,000, 1,000,000 and 5,000,000 (all read `0xCC`)
+  confirms it for single small writes too, so it is not a size or timing problem.
+- Not determined: whether the cause is this U-Boot's rockusb support or the host tool (Debian's `rkdeveloptool`).
+  `rl` and `wl` take their length in **bytes**, not sectors, despite the help text.
+- Consequence: a full-image write leaves the unit with a new partition table and the start of the new boot
+  partition on top of old data, and it will not boot. Flash a whole image from Linux instead (`dd` from a booted
+  system, for example one started from an SD card, or through the Maskrom method below).
 
 The "USB debug" port next to the buttons is not a serial bridge on this unit: connected to a host it presented
 nothing. The board's real debug UART is `ttyS2` at 1,500,000 baud (kernel `console=ttyS2,1500000`).
