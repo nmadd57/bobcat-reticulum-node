@@ -94,12 +94,12 @@ led_blink() {   # led_blink <blue> <green> <red> <seconds on> <seconds off>
     ( while :; do led_show "$1" "$2" "$3"; sleep "$4"; led_show 0 0 0; sleep "$5"; done ) >/dev/null 2>&1 &
     LED_PID=$!
 }
-led() {   # led busy|retry|done
+led() {   # led busy|retry|complete
     led_stop
     case "$1" in
         busy)  led_blink 1 0 0 0.15 0.15 ;;
         retry) led_blink 0 0 1 1 1 ;;
-        done)  led_show 0 1 0 ;;
+        complete) led_show 0 1 0 ;;
     esac
     return 0
 }
@@ -193,7 +193,7 @@ if ! "$INSTALLER" --config "$EFFECTIVE"; then
 fi
 
 touch "$DONE"
-led done
+led complete
 echo "== $(date -Is) first-boot install complete"
 
 # Do not leave secrets sitting in plain text on the FAT partition (readable from
