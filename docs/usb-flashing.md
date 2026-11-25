@@ -75,6 +75,29 @@ U-Boot also has `fastboot usb 0`, which WebUSB can use. Verified on one unit:
 
 Not yet done: this whole sequence on a real image, and the browser version (WebUSB) of either step.
 
+## A unit with the factory bootloader (tested on a G290)
+
+A unit that still runs the factory firmware has Rockchip's own U-Boot (2017.09, Jan 2022), not the community one.
+Differences found on a G290 (59,325 MB eMMC, 121,497,728 sectors):
+
+- **Recovery + Reset lands in Maskrom** (`2207:350a`, `bcdDevice 0100`, no product name), not in U-Boot's download
+  mode. A loader has to be sent first. The standard RK3566 loader from `rkbin` (`RK3566MINIALL.ini`, built with
+  `boot_merger`, sent with `rkdeveloptool db`) worked: the board re-enumerates as `USB-MSC` and answers
+  rockusb. Reads and writes are still limited to the first 32 MiB.
+- **The factory bootloader never reads the fastboot boot script.** Writing only the partition table and the boot
+  area left the board silent (or in Maskrom, depending on the table). Writing the community image's own
+  bootloader region as well (sectors 64 up to where `bootfs` starts, 16 MiB, containing the idbloader and U-Boot)
+  fixed it: after a reset the board appeared as fastboot (`18d1:4d00`) within two seconds.
+- **The partition table must match the disk.** A table whose `rootfs` ends past the end of the disk is judged
+  invalid and rewritten by the factory U-Boot with its own Android layout. The page takes the size from the board.
+- **The factory SPL looks for a GPT partition named `uboot`.** A valid table without one made the board fall back
+  to Maskrom. This stops mattering once the community bootloader is in place.
+
+The web page's first phase therefore writes the partition table, the boot area **and the image's bootloader
+region**, then verifies all three. **Not yet in the page:** the Maskrom stage (sending the loader), so a unit in
+Maskrom still needs the loader sent with `rkdeveloptool db` first, and then the page (or the steps above) takes over.
+Before overwriting a factory unit, save its first 32 MiB (`rkdeveloptool rl 0 33554432 backup.bin`).
+
 ## The browser flasher (the USB flasher section of `site/index.html`)
 
 The page does the two phases above from Chrome or Edge over WebUSB: download mode writes the image's partition

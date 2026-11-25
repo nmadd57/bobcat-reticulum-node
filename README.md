@@ -32,7 +32,7 @@ computer.
    already have, or a URL.
 3. Connect the board's **OTG** USB port to your computer. Hold **Recovery**, press and release **Reset**,
    then let go of Recovery after about two seconds. Press *Connect* and choose *USB download gadget*.
-4. The page writes a small boot area and restarts the board into fastboot. Press *Connect* again, choose the
+4. The page writes the image's bootloader, the partition table and a small boot area, then restarts the board into fastboot. Press *Connect* again, choose the
    fastboot device, and press *Flash*. It writes the system, adds your settings file, and reboots.
 
 First boot then installs the node by itself: the LED **blinks blue** while it installs, **turns steady red** if
@@ -44,7 +44,9 @@ one); on Windows, the WinUSB driver for the two devices. How it works and its li
 [`docs/usb-flashing.md`](docs/usb-flashing.md).
 
 > **Status:** every step is tested against an emulated board and the underlying protocol was verified by
-> hand on a real unit, but the page itself has not yet flashed a unit end to end.
+> hand on a real G295 and a G290, but the page itself has not yet flashed a unit end to end. A unit that
+> still runs the factory firmware starts in Maskrom (not download mode) and needs a loader sent first;
+> see [`docs/usb-flashing.md`](docs/usb-flashing.md).
 
 ### Alternative: an SD card
 

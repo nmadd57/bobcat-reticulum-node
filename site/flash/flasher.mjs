@@ -7,6 +7,7 @@ import { SECTOR } from "./rockusb.mjs";
 
 export function same(a, b) { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; }
 export const GPT_BYTES = 34 * SECTOR;
+export const BOOTLOADER_FIRST_SECTOR = 64;      // the image's bootloader (idbloader, then U-Boot at 16384) runs from here up to bootfs
 export const FLASH_FAT_SECTOR = 32768;          // where the image's bootfs starts; the temporary boot partition goes here
 
 // Sequential reader over an async iterable of byte chunks.
@@ -42,16 +43,32 @@ export async function readLayout(openStream) {
 
 // Phase 1, in download mode: write the partition table and the temporary fastboot boot partition, then reset.
 export async function phaseDownloadMode({ rock, openStream, flashFat, log = () => {}, progress = () => {} }) {
-  const layout = await readLayout(openStream);
+  // The image's own bootloader is part of the job: a unit that still runs another bootloader (a factory unit's
+  // Rockchip U-Boot, for one) does not read the boot script that starts fastboot.
+  const r = new ByteReader(openStream());
+  let gpt, boot;
+  try {
+    gpt = await r.read(GPT_BYTES);
+    await r.skip(BOOTLOADER_FIRST_SECTOR * SECTOR - GPT_BYTES);
+    boot = await r.read((FLASH_FAT_SECTOR - BOOTLOADER_FIRST_SECTOR) * SECTOR);
+  } finally { await r.close(); }
+  const g = parseGpt(gpt); if (!g.headerOk || !g.arrayOk) throw new Error("the image's partition table is damaged");
+  const bootfs = g.entries.find((e) => e.name === "bootfs"), rootfs = g.entries.find((e) => e.name === "rootfs");
+  if (!bootfs || !rootfs || bootfs.first !== FLASH_FAT_SECTOR) throw new Error("unexpected partition layout in the image");
+  if (!boot.some((b) => b !== 0)) throw new Error("the image has no bootloader where one is expected");
   const info = await rock.flashInfo(); log(`eMMC: ${info.sectors} sectors (${(info.sectors * SECTOR / 2 ** 30).toFixed(1)} GiB)`);
-  const table = extendPartition(layout.gpt, "rootfs", info.sectors);
+  const table = extendPartition(gpt, "rootfs", info.sectors);
   if (flashFat.length !== 8 * 1024 * 1024) throw new Error("the temporary boot partition must be 8 MiB");
   if (FLASH_FAT_SECTOR + flashFat.length / SECTOR > 65536) throw new Error("the temporary boot partition does not fit in the first 32 MiB");
   log("writing the partition table"); await rock.writeLba(0, table);
   log("writing the temporary boot partition"); await rock.writeLba(FLASH_FAT_SECTOR, flashFat, (d, t) => progress({ label: "boot area", done: d, total: t }));
+  log("writing the image's bootloader"); await rock.writeLba(BOOTLOADER_FIRST_SECTOR, boot, (d, t) => progress({ label: "bootloader", done: d, total: t }));
   log("verifying what was written");
-  const back = await rock.readLba(0, 34); if (!same(back, table)) throw new Error("the partition table did not read back correctly");
-  const fat = await rock.readLba(FLASH_FAT_SECTOR, flashFat.length / SECTOR); if (!same(fat, flashFat)) throw new Error("the boot area did not read back correctly");
+  const checks = [["partition table", 0, table], ["boot area", FLASH_FAT_SECTOR, flashFat], ["bootloader", BOOTLOADER_FIRST_SECTOR, boot]];
+  for (const [name, lba, want] of checks) {
+    const back = await rock.readLba(lba, want.length / SECTOR);
+    if (!same(back, want)) throw new Error(`the ${name} did not read back correctly`);
+  }
   log("verified; resetting the board into fastboot"); await rock.reset();
   return { diskSectors: info.sectors };
 }

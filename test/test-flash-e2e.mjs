@@ -26,7 +26,9 @@ dv.setBigUint64(552, 34n, true); dv.setBigUint64(560, BigInt(ROOT_LAST), true); 
 const ent = (i, a, b, n) => { const o = 1024 + i * 128; g.fill(0x11, o, o + 16); g.fill(0x22, o + 16, o + 32); dv.setBigUint64(o + 32, BigInt(a), true); dv.setBigUint64(o + 40, BigInt(b), true); [...n].forEach((c, k) => dv.setUint16(o + 56 + k * 2, c.charCodeAt(0), true)); };
 ent(0, BOOT_FIRST, ROOT_FIRST - 1, "bootfs"); ent(1, ROOT_FIRST, ROOT_LAST, "rootfs");
 dv.setUint32(600, crc32(g.subarray(1024, 1024 + 16384)), true); dv.setUint32(528, crc32(g.subarray(512, 512 + 92)), true);
-const image = Buffer.concat([Buffer.from(g), Buffer.alloc(BOOT_FIRST * 512 - g.length), bootfs, rootfs, Buffer.alloc(33 * 512)]);
+const loader = randomBytes((BOOT_FIRST - 64) * 512);   // stands in for idbloader + U-Boot
+const gap = Buffer.alloc(64 * 512 - g.length);
+const image = Buffer.concat([Buffer.from(g), gap, loader, bootfs, rootfs, Buffer.alloc(33 * 512)]);
 async function* openImage() { for (let o = 0; o < image.length; o += 3000011) yield new Uint8Array(image.subarray(o, Math.min(o + 3000011, image.length))); }
 
 // the temporary 8 MiB boot partition the page would fetch
@@ -75,6 +77,7 @@ const t1 = parseGpt(disk.subarray(0, 17408));
 ok(t1.headerOk && t1.arrayOk, "phase 1: the table on the board has valid CRCs");
 ok(t1.entries[1].name === "rootfs" && t1.entries[1].last === DISK - 34 && t1.entries[0].last === ROOT_FIRST - 1, "phase 1: rootfs extended to the end of the disk, bootfs unchanged");
 ok(Buffer.compare(Buffer.from(disk.subarray(BOOT_FIRST * 512, BOOT_FIRST * 512 + flashFat.length)), Buffer.from(flashFat)) === 0, "phase 1: the temporary boot partition is where bootfs starts");
+ok(Buffer.compare(Buffer.from(disk.subarray(64 * 512, BOOT_FIRST * 512)), loader) === 0, "phase 1: the image's bootloader region (sector 64 up to bootfs) was written");
 
 const settings = "WIFI_SSID=Home\nHOSTNAME=testnode\nTIMEZONE=America/New_York\n";
 const fb = new Fastboot(new Usb(fbHandler)); await fb.open();
