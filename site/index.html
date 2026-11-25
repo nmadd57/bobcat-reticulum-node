@@ -412,13 +412,17 @@ async function accept(s, label) {
 }
 let repoInfo = null;
 async function useRepo() {
-  if (!repoInfo) {
-    status("fileStatus", "Looking up the latest release...");
-    try { const r = await fetch("flash/image/info.json"); if (!r.ok) throw new Error(r.status); repoInfo = await r.json(); }
-    catch { status("fileStatus", "This site has no release image published yet. Choose a file or a URL instead.", "bad"); $("repoInfo").textContent = ""; return; }
-  }
-  $("repoInfo").textContent = `(${repoInfo.tag}, ${fmt(repoInfo.size)} download)`;
-  const s = fetchSource("flash/image/" + repoInfo.name, repoInfo.name); s.remote = true; s.size = repoInfo.size;
+  status("fileStatus", "Looking up the latest release...");
+  try {   // never from the browser's cache: Pages lets browsers keep files for 10 minutes
+    const r = await fetch("flash/image/info.json?t=" + Date.now(), { cache: "no-store" }); if (!r.ok) throw new Error(r.status); repoInfo = await r.json();
+  } catch { repoInfo = null; status("fileStatus", "This site has no release image published yet. Choose a file or a URL instead.", "bad"); $("repoInfo").textContent = ""; return; }
+  let newer = "";
+  try {   // GitHub already knows the newest tag; the site publishes its image a few minutes after the build finishes
+    const g = await fetch("https://api.github.com/repos/nmadd57/bobcat-reticulum-node/releases/latest", { cache: "no-store" });
+    if (g.ok) { const j = await g.json(); if (j.tag_name && j.tag_name !== repoInfo.tag) newer = j.tag_name; }
+  } catch { /* offline or rate limited: the site's own copy is still fine */ }
+  $("repoInfo").textContent = `(${repoInfo.tag}, ${fmt(repoInfo.size)} download${newer ? `; ${newer} is newer and still being published here` : ""})`;
+  const s = fetchSource("flash/image/" + repoInfo.name + "?v=" + encodeURIComponent(repoInfo.tag), repoInfo.name); s.remote = true; s.size = repoInfo.size;
   await accept(s, `${repoInfo.name} from release ${repoInfo.tag}`);
 }
 function pickSource() {
