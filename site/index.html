@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Config generator · The People's RNode</title>
+<title>Setup and flasher · The People's RNode</title>
 <meta name="description" content="Make the bobcat-install.conf settings file for a Bobcat Reticulum node. Everything happens in your browser.">
 <style>
 :root{--bg:#fbfaf8;--fg:#1d1b1a;--mut:#6b6560;--line:#ddd7d0;--card:#fff;--red:#c8001e;--redfg:#fff;--bad:#b00020;--ok:#1b6e3a;--code:#f3efea}
@@ -46,14 +46,21 @@ ol{padding-left:20px;margin:8px 0}li{margin:4px 0}
 code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 footer{margin-top:32px;color:var(--mut);font-size:.85rem}
 a{color:var(--red)}
+
+.card{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 14px}
+.card.off{opacity:.5;pointer-events:none}
+.row2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+progress{width:100%;height:14px;accent-color:var(--red)}
+.card pre{margin:8px 0 0;max-height:240px;white-space:pre-wrap}
+.card h2{font-size:1.05rem;margin:0 0 8px}
+details summary{cursor:pointer;font-weight:600}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
   <img src="logo.svg" alt="Cat ears over a hammer and sickle in one circle">
-  <h1>Config generator<small>The People's RNode</small></h1>
-<p style="margin:0 0 0 auto"><a href="flash.html">USB flasher (experimental)</a></p>
+  <h1>Config generator and USB flasher<small>The People's RNode</small></h1>
 </header>
 <p class="lead">Fill in what you need and leave the rest. This makes the <code>bobcat-install.conf</code> file that goes on the flasher SD card next to the image. Everything happens in this page; nothing you type is sent anywhere.</p>
 
@@ -144,6 +151,53 @@ a{color:var(--red)}
 </aside>
 </div>
 
+<section id="usb">
+<h2 style="font-size:1.25rem;margin:28px 0 6px">Or flash it over USB <small style="color:var(--mut);font-weight:500">(experimental)</small></h2>
+<p class="lead" style="margin:0 0 14px">Write the OS image straight to the unit's internal storage from this page over its OTG USB port, with the settings above already in place. No SD card. Needs Chrome or Edge. Tested against an emulated board and the same protocol by hand; this page has not yet flashed a real unit.</p>
+<div id="unsupported" class="note" hidden></div>
+<div class="note"><strong>This erases the unit's internal storage.</strong> Use the <code>bobcat-g295-emmc.img.xz</code> image from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a>, not the standalone SD image.</div>
+<section class="card" id="s1">
+  <h2>1. The OS image</h2>
+  <input type="file" id="file" accept=".xz,.img">
+  <div class="status" id="fileStatus">Choose <code>bobcat-g295-emmc.img.xz</code> (or the unpacked <code>.img</code>). It is read in your browser and never uploaded.</div>
+</section>
+
+<section class="card off" id="s3">
+  <h2>2. Put the board in download mode</h2>
+  <ol style="margin:0 0 8px;padding-left:20px">
+    <li>Remove the SD card. Connect the board's <strong>OTG</strong> USB port to this computer.</li>
+    <li>Hold <strong>Recovery</strong>, press and release <strong>Reset</strong>, then release Recovery after about two seconds.</li>
+    <li>Press <em>Connect</em> and choose <em>USB download gadget</em> (<code>2207:350a</code>).</li>
+  </ol>
+  <label class="check"><input type="checkbox" id="confirm"><span>I understand this erases the board's internal storage.</span></label>
+  <div class="row2"><button id="connectRock" class="primary" type="button" disabled>Connect</button><button id="writeBoot" type="button" disabled>Write the boot area and restart the board</button></div>
+  <progress id="p1" max="1" value="0" hidden></progress><div class="status" id="s3status"></div>
+</section>
+
+<section class="card off" id="s4">
+  <h2>3. Flash</h2>
+  <p class="status" style="margin-top:0">The board restarts into fastboot (<code>18d1:4d00</code>). Press <em>Connect</em> and choose it. The flash takes a few minutes; keep the cable in and this tab open.</p>
+  <div class="row2"><button id="connectFb" class="primary" type="button">Connect</button><button id="flash" type="button" disabled>Flash</button></div>
+  <div class="status" id="phase"></div><progress id="p2" max="1" value="0" hidden></progress><div class="status" id="s4status"></div>
+</section>
+
+<section class="card">
+  <h2>Log</h2>
+  <pre id="log" aria-live="polite">Nothing yet.</pre>
+</section>
+<details class="card">
+  <summary>Browser and driver requirements</summary>
+  <ul>
+    <li><strong>Chrome, Edge or another Chromium browser</strong> (WebUSB). Firefox and Safari do not support it.</li>
+    <li><strong>Linux:</strong> the browser needs permission to open the device. For example in <code>/etc/udev/rules.d/99-bobcat.rules</code>:
+      <pre>SUBSYSTEM=="usb", ATTR{idVendor}=="2207", MODE="0666"
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</pre></li>
+    <li><strong>Windows:</strong> the two USB devices need the WinUSB driver (for example with Zadig), or the page cannot open them.</li>
+    <li><strong>macOS:</strong> usually works without anything extra.</li>
+  </ul>
+</details>
+</section>
+
 <footer>Unofficial: not made by, affiliated with or endorsed by Bobcat, Bobber or Helium. <a href="https://github.com/nmadd57/bobcat-reticulum-node">Source and documentation</a>. The same file can be made with <code>tools/make-config.py</code>.</footer>
 </div>
 
@@ -192,7 +246,6 @@ a{color:var(--red)}
       if (input) input.classList.add("invalid");
     });
     $("out").textContent = last.text;
-    try { if (!last.errors.length) localStorage.setItem("bobcat-flash-settings", last.text); } catch (e) {}
     const s = $("status");
     const blocked = last.errors.length > 0 || last.empty;
     s.className = "status " + (last.errors.length ? "bad" : last.empty ? "" : "ok");
@@ -238,8 +291,92 @@ a{color:var(--red)}
     catch (e) { $("copy").textContent = "Select the text and copy it"; }
     setTimeout(() => { $("copy").textContent = "Copy"; }, 1800);
   });
+  window.bobcatSettings = () => ({ text: last.errors.length ? "" : last.text, errors: last.errors.length });
   update();
 })();
+</script>
+<script src="flash/vendor/xz-decompress.min.js"></script>
+<script type="module">
+import { RockUsb, ROCKUSB_FILTER } from "./flash/rockusb.mjs";
+import { Fastboot, FASTBOOT_FILTER } from "./flash/fastboot.mjs";
+import { phaseDownloadMode, phaseFastboot, readLayout } from "./flash/flasher.mjs";
+
+const $ = (id) => document.getElementById(id);
+let file = null, rock = null, fb = null, flashFat = null;
+
+const logEl = $("log"); let logStarted = false;
+function log(m) { if (!logStarted) { logEl.textContent = ""; logStarted = true; } logEl.textContent += `${new Date().toLocaleTimeString()}  ${m}\n`; logEl.scrollTop = logEl.scrollHeight; }
+const status = (id, text, cls = "") => { const e = $(id); e.textContent = text; e.className = "status " + cls; };
+const enable = (id, on) => $(id).classList.toggle("off", !on);
+const fmt = (n) => n >= 2 ** 30 ? (n / 2 ** 30).toFixed(2) + " GiB" : (n / 2 ** 20).toFixed(0) + " MiB";
+
+if (!("usb" in navigator)) { const u = $("unsupported"); u.hidden = false; u.textContent = "This browser has no WebUSB, so the page cannot talk to the board. Use Chrome, Edge or another Chromium browser."; }
+else if (!window.isSecureContext) { const u = $("unsupported"); u.hidden = false; u.textContent = "WebUSB needs a secure (https) page. Open this page over https."; }
+
+// The image as a fresh async iterable of bytes each time it is opened (the file is read twice: layout first, then data).
+function openStream() {
+  const isXz = /\.xz$/i.test(file.name);
+  const rs = isXz ? new window["xz-decompress"].XzReadableStream(file.stream()) : file.stream();
+  return { async *[Symbol.asyncIterator]() {
+    const r = rs.getReader();
+    try { for (;;) { const { done, value } = await r.read(); if (done) return; yield value; } }
+    finally { try { await r.cancel(); } catch {} }
+  } };
+}
+
+$("file").addEventListener("change", async (e) => {
+  file = e.target.files[0]; if (!file) return;
+  status("fileStatus", "Reading the partition table...");
+  try {
+    const l = await readLayout(openStream);
+    status("fileStatus", `${file.name} (${fmt(file.size)}): bootfs ${fmt((l.boot.last - l.boot.first + 1) * 512)}, rootfs ${fmt((l.root.last - l.root.first + 1) * 512)}. Looks right.`, "ok");
+    enable("s3", true); log("image accepted: " + file.name);
+  } catch (err) { status("fileStatus", "That does not look like the Bobcat OS image: " + err.message, "bad"); enable("s3", false); }
+});
+
+$("confirm").addEventListener("change", () => { $("connectRock").disabled = !$("confirm").checked; });
+
+async function pick(filters) { return navigator.usb.requestDevice({ filters }); }
+
+$("connectRock").addEventListener("click", async () => {
+  try {
+    const dev = await pick([ROCKUSB_FILTER]); rock = new RockUsb(dev); await rock.open();
+    const info = await rock.flashInfo(); log(`connected: download mode, ${info.sectors} sectors (${fmt(info.sectors * 512)})`);
+    status("s3status", `Connected. eMMC ${fmt(info.sectors * 512)}.`, "ok"); $("writeBoot").disabled = false;
+  } catch (err) { status("s3status", explain(err), "bad"); log("error: " + err.message); }
+});
+
+$("writeBoot").addEventListener("click", async () => {
+  $("writeBoot").disabled = true; $("connectRock").disabled = true; $("p1").hidden = false;
+  try {
+    if (!flashFat) { log("fetching the temporary boot partition"); const r = await fetch("flash/flashmode/fat.img"); if (!r.ok) throw new Error("could not load flash/flashmode/fat.img (" + r.status + ")"); flashFat = new Uint8Array(await r.arrayBuffer()); }
+    await phaseDownloadMode({ rock, openStream, flashFat, log, progress: (p) => { $("p1").max = p.total; $("p1").value = p.done; } });
+    status("s3status", "Done. The board is restarting into fastboot.", "ok"); enable("s3", false); enable("s4", true);
+  } catch (err) { status("s3status", explain(err), "bad"); log("error: " + err.message); $("writeBoot").disabled = false; $("connectRock").disabled = false; }
+});
+
+$("connectFb").addEventListener("click", async () => {
+  try {
+    const dev = await pick([FASTBOOT_FILTER]); fb = new Fastboot(dev); fb.log = (t) => log("board: " + t); await fb.open();
+    log("connected: fastboot, " + (await fb.getvar("version-bootloader"))); status("s4status", "Connected. Press Flash.", "ok"); $("flash").disabled = false;
+  } catch (err) { status("s4status", explain(err), "bad"); log("error: " + err.message); }
+});
+
+$("flash").addEventListener("click", async () => {
+  const cur = window.bobcatSettings(); if (cur.errors) { status("s4status", "Fix the settings above first (" + cur.errors + " problem(s)).", "bad"); return; }
+  $("flash").disabled = true; $("connectFb").disabled = true; $("p2").hidden = false;
+  try {
+    await phaseFastboot({ fb, openStream, settingsText: window.bobcatSettings().text, log, progress: (p) => { $("phase").textContent = `Writing ${p.label}: ${fmt(p.done)} of ${fmt(p.total)}`; $("p2").max = p.total; $("p2").value = p.done; } });
+    $("phase").textContent = ""; status("s4status", "Finished. The board is rebooting into the new system. Remove the cable; on first boot the LED blinks blue while it installs and turns green when done.", "ok");
+  } catch (err) { status("s4status", explain(err), "bad"); log("error: " + err.message); $("flash").disabled = false; $("connectFb").disabled = false; }
+});
+
+function explain(err) {
+  const m = String(err && err.message || err);
+  if (/denied|access/i.test(m)) return "The browser cannot open the device. On Linux add the udev rules below; on Windows the device needs the WinUSB driver. (" + m + ")";
+  if (/No device selected|NotFound/i.test(m)) return "No device was chosen. Check the board is in the right mode and try again.";
+  return m;
+}
 </script>
 </body>
 </html>

@@ -75,7 +75,7 @@ U-Boot also has `fastboot usb 0`, which WebUSB can use. Verified on one unit:
 
 Not yet done: this whole sequence on a real image, and the browser version (WebUSB) of either step.
 
-## The browser flasher (`site/flash.html`)
+## The browser flasher (the USB flasher section of `site/index.html`)
 
 The page does the two phases above from Chrome or Edge over WebUSB: download mode writes the image's partition
 table (with `rootfs` extended to the end of the disk) and a temporary 8 MiB boot partition holding a
