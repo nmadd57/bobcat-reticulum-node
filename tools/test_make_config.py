@@ -321,6 +321,7 @@ def test_second_user_with_password_sudo_and_key(tmp_path):
         "y", "pw-alice",   # a password for alice (read from stdin here)
         "y",            # sudo
         key, "",        # a key for alice, then done
+        "",             # GitHub users for alice
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port

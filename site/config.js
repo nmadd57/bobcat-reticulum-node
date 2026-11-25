@@ -27,7 +27,7 @@
   const SECTIONS = [
     ["Wi-Fi (this hardware: 2.4 GHz only)", ["WIFI_SSID", "WIFI_PASS", "WIFI_HIDDEN", "WIFI_OPEN"]],
     ["Ethernet", ["ETH_MODE", "ETH_ADDRESS", "ETH_GATEWAY", "ETH_DNS"]],
-    ["Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH", "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SUDO", "SKIP_FIRSTLOGIN_WIZARD"]],
+    ["Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH", "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SSH_GITHUB_USER", "USER_SUDO", "SKIP_FIRSTLOGIN_WIZARD"]],
     ["Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE", "TXPOWER"]],
     ["Reticulum", ["TRANSPORT", "INTERFACE_MODE", "IFAC_NETNAME", "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]],
     ["Self-recovery", ["RESILIENCE", "NETWATCH_REBOOT_MINUTES"]],
@@ -73,11 +73,14 @@
     if (t("userName")) {
       const e = checks.userName(t("userName")); need("userName", e, e);
       const ukeys = lines(v.userKeys), ubad = ukeys.map(checks.sshKey).find(Boolean); need("userKeys", ubad, ubad);
-      const h = !t("userHash") ? (ukeys.length ? "" : "give a password or an SSH key, or this user cannot log in") : checks.hash(t("userHash")); need("userHash", h, h);
+      const ugh = t("userGithub") ? list(t("userGithub")) : [], ughBad = t("userGithub") ? checks.github(t("userGithub")) : "";
+      need("userGithub", ughBad, ughBad);
+      const h = !t("userHash") ? (ukeys.length || ugh.length ? "" : "give a password, an SSH key or a GitHub user, or this user cannot log in") : checks.hash(t("userHash")); need("userHash", h, h);
       if (v.userSudo && !t("userHash")) need("userHash", true, "sudo asks for the user's password, so set one");
       if (!e) add("USER_NAME", t("userName"));
       if (t("userHash") && !h) add("USER_PASSWORD_HASH", t("userHash"));
       if (!ubad) ukeys.forEach((k) => add("USER_SSH_KEY", k));
+      if (!ughBad) ugh.forEach((u) => add("USER_SSH_GITHUB_USER", u));
       if (v.userSudo) add("USER_SUDO", "yes");
     }
     if (v.skipWizard) add("SKIP_FIRSTLOGIN_WIZARD", "yes");

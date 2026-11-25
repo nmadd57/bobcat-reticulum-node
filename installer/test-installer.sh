@@ -162,7 +162,9 @@ printf 'USER_NAME=carol\nUSER_PASSWORD_HASH=$6$s$h\nUSER_SUDO=yes\n' > "$T/user.
 plan --config "$T/user.conf"
 has   "user: the settings file keys work" "extra user:    carol (with sudo" "$OUT"
 plan --user dave --user-ssh-key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest a@b' --user-ssh-key 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 c@d'
-has   "user: key-only user, two keys counted" "extra user:    dave (no sudo, password none, ssh keys: 2)" "$OUT"
+has   "user: key-only user, two keys counted" "extra user:    dave (no sudo, password none, ssh keys: 2, github keys: 0)" "$OUT"
+plan --user erin --user-ssh-github-user octocat
+has   "user: a GitHub-keys-only user is accepted" "extra user:    erin (no sudo, password none, ssh keys: 0, github keys: 1)" "$OUT"
 plan --hostname x
 has   "user: none by default" "extra user:    none" "$OUT"
 
@@ -174,6 +176,8 @@ plan_fail "reject: bad user name" "user name must be" --user 'Bad Name' --user-p
 plan_fail "reject: user password without a name" "need USER_NAME" --user-password-hash '$6$s$h'
 plan_fail "reject: a user key with options" "USER_SSH_KEY is not a plain public key" --user alice --user-ssh-key 'command="id" ssh-ed25519 AAAAC3Nza x'
 plan_fail "reject: sudo for a key-only user" "USER_SUDO needs" --user alice --user-ssh-key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest a@b' --user-sudo
+plan_fail "reject: bad GitHub name for the user" "not a valid GitHub username" --user erin --user-ssh-github-user 'bad--name'
+plan_fail "reject: GitHub keys without a user name" "need USER_NAME" --user-ssh-github-user octocat
 plan_fail "reject: sudo without a name" "need USER_NAME" --user-sudo
 plan_fail "reject: spreading factor" "spreadingfactor must be 7-12" --spreadingfactor 13
 plan_fail "reject: bandwidth 62.5 kHz" "bandwidth must be 125000" --bandwidth 62500

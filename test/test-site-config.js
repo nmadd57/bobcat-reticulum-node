@@ -24,6 +24,7 @@ const cases = {
   "second user with password and sudo": { wifi: false, userName: "alice", userHash: "$6$abcdefgh$0123456789abcdefghijklmnopqrstuvwxyzABCDEFGH", userSudo: true },
   "second user with keys only": { wifi: false, userName: "bob", userKeys: KEY + "\n" },
   "second user with both": { wifi: false, userName: "carol", userHash: "$6$abcdefgh$0123456789abcdefghijklmnopqrstuvwxyzABCDEFGH", userKeys: KEY, userSudo: true },
+  "second user with GitHub keys only": { wifi: false, userName: "erin", userGithub: "octocat, nmadd57" },
   "recovery off": { wifi: false, recovery: false },
   "recovery reboot 45": { wifi: false, recovery: true, reboot: "45" },
 };
@@ -41,6 +42,7 @@ const rejects = {
   "user with plain password": { userName: "alice", userHash: "hunter2" },
   "sudo for a key-only user": { userName: "alice", userKeys: KEY, userSudo: true },
   "user key with options": { userName: "alice", userKeys: "command=\"id\" " + KEY },
+  "user with a bad GitHub name": { userName: "erin", userGithub: "bad--name" },
   "short wifi pass": { wifi: true, wifiSsid: "x", wifiPass: "short" },
   "bad hostname": { hostname: "-bad-" },
   "key with options": { sshKeys: 'command="id" ' + KEY },

@@ -112,6 +112,8 @@ details summary{cursor:pointer;font-weight:600}
       <p class="hint">Hashed here in your browser, like the root password. Only the hash goes into the file.</p></div>
     <div class="row"><label for="userHash">Password hash</label><input type="text" id="userHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="userHash"></div></div>
     <div class="row"><label for="userKeys">SSH public keys for this user (optional, one per line)</label><textarea id="userKeys" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><div class="err" data-for="userKeys"></div></div>
+    <div class="row"><label for="userGithub">GitHub usernames whose keys this user may log in with (optional)</label><input type="text" id="userGithub" placeholder="your-github-name, a-friend"><div class="err" data-for="userGithub"></div>
+      <p class="hint">The node fetches the keys those accounts publish (<code>github.com/NAME.keys</code>) once, while installing.</p></div>
     <div class="check"><input type="checkbox" id="userSudo"><label for="userSudo">Allow this user to use sudo (full administrator rights)</label></div>
   </div>
   <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node)</label></div>
@@ -232,7 +234,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   "use strict";
   const $ = (id) => document.getElementById(id);
   const form = $("f");
-  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys",
+  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys", "userGithub",
     "bandwidth", "sf", "cr", "txpower", "ifacName", "ifacPass", "mode", "tcpClients", "tcpPort", "reboot"];
 
   // option lists
@@ -262,7 +264,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
     $("passRow").hidden = $("wifiOpen").checked;
     $("ethBox").hidden = $("ethMode").value !== "static";
     $("rebootBox").hidden = !$("recovery").checked;
-    const vals = values(); if (!$("userOn").checked) { vals.userName = ""; vals.userHash = ""; vals.userKeys = ""; vals.userSudo = false; }
+    const vals = values(); if (!$("userOn").checked) { vals.userName = ""; vals.userHash = ""; vals.userKeys = ""; vals.userGithub = ""; vals.userSudo = false; }
     last = BobcatConfig.build(vals);
     document.querySelectorAll(".err").forEach((e) => { e.textContent = ""; });
     document.querySelectorAll(".invalid").forEach((e) => e.classList.remove("invalid"));

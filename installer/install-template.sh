@@ -62,7 +62,7 @@ OPT_NETWORK_ONLY=0 OPT_REVERT_SECS=180
 # Operating system
 OPT_HOSTNAME="" OPT_TIMEZONE="" OPT_SSH_KEYS="" OPT_SSH_KEYS_FILE="" OPT_GH_USERS=()
 OPT_ROOT_HASH="" OPT_SKIP_WIZARD=0
-OPT_USER_NAME="" OPT_USER_HASH="" OPT_USER_SUDO=0 OPT_USER_KEYS=""
+OPT_USER_NAME="" OPT_USER_HASH="" OPT_USER_SUDO=0 OPT_USER_KEYS="" OPT_USER_GH_USERS=()
 
 SERVICE_STARTED_AT=""
 CURRENT_CONFIG=""
@@ -194,6 +194,7 @@ apply_config_key() {
         USER_PASSWORD_HASH)   OPT_USER_HASH="$val" ;;
         USER_SUDO)            OPT_USER_SUDO="$(to_bool "$val")" ;;
         USER_SSH_KEY)         [[ -z "$val" ]] || OPT_USER_KEYS+="$val"$'\n' ;;
+        USER_SSH_GITHUB_USER) [[ -z "$val" ]] || OPT_USER_GH_USERS+=("$val") ;;
         SKIP_FIRSTLOGIN_WIZARD) OPT_SKIP_WIZARD="$(to_bool "$val")" ;;
         FREQUENCY)            OPT_FREQ="$val" ;;
         BANDWIDTH)            OPT_BW="$val" ;;
@@ -305,6 +306,7 @@ while [[ $# -gt 0 ]]; do
         --user-password-hash) need "$@"; OPT_USER_HASH="$2"; shift 2 ;;
         --user-sudo)       OPT_USER_SUDO=1; shift ;;
         --user-ssh-key)    need "$@"; OPT_USER_KEYS+="$2"$'\n'; shift 2 ;;
+        --user-ssh-github-user) need "$@"; OPT_USER_GH_USERS+=("$2"); shift 2 ;;
         --skip-first-login-wizard) OPT_SKIP_WIZARD=1; shift ;;
         -h|--help)         usage; exit 0 ;;
         *)                 fail "unknown option: $1 (try --help)" ;;
@@ -435,16 +437,20 @@ validate_options() {
         [[ "$OPT_USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] ||
             fail "the user name must be lowercase letters, digits, - and _ (start with a letter or _, at most 32 characters)"
         [[ "$OPT_USER_NAME" != root ]] || fail "USER_NAME is for a second user; root is already there (use ROOT_PASSWORD_HASH)"
-        [[ -n "$OPT_USER_HASH" || -n "$OPT_USER_KEYS" ]] ||
-            fail "USER_NAME needs USER_PASSWORD_HASH (a crypt(3) hash) or USER_SSH_KEY, or the user could not log in"
+        [[ -n "$OPT_USER_HASH" || -n "$OPT_USER_KEYS" || ${#OPT_USER_GH_USERS[@]} -gt 0 ]] ||
+            fail "USER_NAME needs USER_PASSWORD_HASH (a crypt(3) hash), USER_SSH_KEY or USER_SSH_GITHUB_USER, or the user could not log in"
         [[ "$OPT_USER_SUDO" -eq 0 || -n "$OPT_USER_HASH" ]] || fail "USER_SUDO needs USER_PASSWORD_HASH (sudo asks for the password)"
-    elif [[ -n "$OPT_USER_HASH$OPT_USER_KEYS" || "$OPT_USER_SUDO" -eq 1 ]]; then
-        fail "USER_PASSWORD_HASH, USER_SSH_KEY and USER_SUDO need USER_NAME"
+    elif [[ -n "$OPT_USER_HASH$OPT_USER_KEYS" || ${#OPT_USER_GH_USERS[@]} -gt 0 || "$OPT_USER_SUDO" -eq 1 ]]; then
+        fail "USER_PASSWORD_HASH, USER_SSH_KEY, USER_SSH_GITHUB_USER and USER_SUDO need USER_NAME"
     fi
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ "$line" =~ $SSH_KEY_RE ]] || fail "a USER_SSH_KEY is not a plain public key (options such as command= are not accepted)"
     done <<< "$OPT_USER_KEYS"
+    for value in "${OPT_USER_GH_USERS[@]+"${OPT_USER_GH_USERS[@]}"}"; do
+        [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$ && "$value" != *--* ]] ||
+            fail "'$value' is not a valid GitHub username (letters, digits, single hyphens, up to 39 characters)"
+    done
     if [[ -n "$OPT_SSH_KEYS_FILE" ]]; then
         [[ -r "$OPT_SSH_KEYS_FILE" ]] || fail "cannot read SSH key file $OPT_SSH_KEYS_FILE"
         OPT_SSH_KEYS+="$(tr -d '\r' < "$OPT_SSH_KEYS_FILE")"$'\n'
@@ -790,25 +796,25 @@ sys.exit(4)
 PY
 }
 
-# Add the keys GitHub publishes for $1 to authorized_keys, skipping duplicates.
+# Add the keys GitHub publishes for $1 to authorized_keys in directory $2 (default: root's), skipping duplicates.
 # Stops the install if the keys cannot be had: carrying on would leave a node
 # the caller expects to reach with a key it does not have.
 add_github_keys() {
-    local user="$1" keys rc=0 line added=0 valid=0
+    local user="$1" dir="${2:-$SSH_DIR}" keys rc=0 line added=0 valid=0
     keys="$(fetch_github_keys "$user")" || rc=$?
     case "$rc" in
         0) ;;
         3) fail "GitHub user '$user' was not found (${BOBCAT_GITHUB_URL:-https://github.com}/$user.keys gave 404): check the name" ;;
         *) fail "could not reach GitHub to fetch the keys of '$user'; will be retried" ;;
     esac
-    printf '# keys published by GitHub user %s, fetched %s\n' "$user" "$(date -u +%Y-%m-%d)" >> "$SSH_DIR/authorized_keys.new"
+    printf '# keys published by GitHub user %s, fetched %s\n' "$user" "$(date -u +%Y-%m-%d)" >> "$dir/authorized_keys.new"
     while IFS= read -r line; do
         line="${line%$'\r'}"
         [[ -n "$line" ]] || continue
         if [[ "$line" =~ $SSH_KEY_RE ]]; then
             valid=$((valid + 1))
-            if ! grep -qxF -- "$line" "$SSH_DIR/authorized_keys"; then
-                printf '%s\n' "$line" >> "$SSH_DIR/authorized_keys.new"
+            if ! grep -qxF -- "$line" "$dir/authorized_keys"; then
+                printf '%s\n' "$line" >> "$dir/authorized_keys.new"
                 added=$((added + 1))
             fi
         else
@@ -816,13 +822,13 @@ add_github_keys() {
         fi
     done <<< "$keys"
     if [[ "$valid" -eq 0 ]]; then
-        rm -f "$SSH_DIR/authorized_keys.new"
+        rm -f "$dir/authorized_keys.new"
         fail "GitHub user '$user' has no usable SSH public keys"
     fi
     if [[ "$added" -gt 0 ]]; then
-        cat "$SSH_DIR/authorized_keys.new" >> "$SSH_DIR/authorized_keys"
+        cat "$dir/authorized_keys.new" >> "$dir/authorized_keys"
     fi
-    rm -f "$SSH_DIR/authorized_keys.new"
+    rm -f "$dir/authorized_keys.new"
     note "SSH keys from GitHub user $user: $added added ($valid found)"
 }
 
@@ -891,6 +897,14 @@ setup_os() {
             done <<< "$OPT_USER_KEYS"
             chown "$OPT_USER_NAME:$OPT_USER_NAME" "$uhome/.ssh/authorized_keys"; chmod 600 "$uhome/.ssh/authorized_keys"
             note "SSH keys installed for $OPT_USER_NAME"
+        fi
+        if [[ ${#OPT_USER_GH_USERS[@]} -gt 0 ]]; then
+            local uh ugh
+            uh="$(getent passwd "$OPT_USER_NAME" | cut -d: -f6)"
+            install -d -m 700 -o "$OPT_USER_NAME" -g "$OPT_USER_NAME" "$uh/.ssh"
+            touch "$uh/.ssh/authorized_keys"
+            for ugh in "${OPT_USER_GH_USERS[@]}"; do add_github_keys "$ugh" "$uh/.ssh"; done
+            chown "$OPT_USER_NAME:$OPT_USER_NAME" "$uh/.ssh/authorized_keys"; chmod 600 "$uh/.ssh/authorized_keys"
         fi
         if [[ "$OPT_USER_SUDO" -eq 1 ]]; then
             usermod -aG sudo "$OPT_USER_NAME" && note "$OPT_USER_NAME can use sudo"
@@ -1359,7 +1373,7 @@ print_plan() {
     fi
     echo "root password: $([[ -n $OPT_ROOT_HASH ]] && echo 'will be set from the hash' || echo unchanged)"
     if [[ -n "$OPT_USER_NAME" ]]; then
-        echo "extra user:    $OPT_USER_NAME ($([[ $OPT_USER_SUDO -eq 1 ]] && echo 'with sudo' || echo 'no sudo'), password $([[ -n $OPT_USER_HASH ]] && echo 'from the hash' || echo 'none'), ssh keys: $(grep -c . <<<"$OPT_USER_KEYS"))"
+        echo "extra user:    $OPT_USER_NAME ($([[ $OPT_USER_SUDO -eq 1 ]] && echo 'with sudo' || echo 'no sudo'), password $([[ -n $OPT_USER_HASH ]] && echo 'from the hash' || echo 'none'), ssh keys: $(grep -c . <<<"$OPT_USER_KEYS"), github keys: ${#OPT_USER_GH_USERS[@]})"
     else
         echo "extra user:    none"
     fi

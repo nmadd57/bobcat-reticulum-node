@@ -143,7 +143,7 @@ SECTIONS = [
     ("Wi-Fi (this hardware: 2.4 GHz only)", ["WIFI_SSID", "WIFI_PASS", "WIFI_HIDDEN", "WIFI_OPEN"]),
     ("Ethernet", ["ETH_MODE", "ETH_ADDRESS", "ETH_GATEWAY", "ETH_DNS"]),
     ("Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH",
-                          "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SUDO",
+                          "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SSH_GITHUB_USER", "USER_SUDO",
                           "SKIP_FIRSTLOGIN_WIZARD"]),
     ("Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE",
                                             "TXPOWER", "PREAMBLE"]),
@@ -440,6 +440,15 @@ def interview(a, s):
             if not k:
                 break
             s.set("USER_SSH_KEY", k)
+        while True:
+            gh = a.ask("  GitHub username(s) whose keys this user may use (comma separated, Enter for none)", check=v_github)
+            users = [u for u in gh.replace(" ", "").split(",") if u]
+            if users and any(check_github_user(u) is False for u in users):
+                print("  Please try again.")
+                continue
+            for u in users:
+                s.set("USER_SSH_GITHUB_USER", u)
+            break
     if a.yes("Skip the interactive first-login prompt (recommended for a headless node)?", default=True):
         s.set("SKIP_FIRSTLOGIN_WIZARD", "yes")
 

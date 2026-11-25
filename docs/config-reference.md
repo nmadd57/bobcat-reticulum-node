@@ -60,9 +60,10 @@ netplan file is refused (netplan would reject it or silently merge it).
 | `SSH_AUTHORIZED_KEYS_FILE` | `--ssh-key-file` | a file of public keys, added to root's `authorized_keys` without duplicates |
 | `SSH_GITHUB_USER` | `--ssh-github-user` | add the public keys GitHub publishes for this user (`https://github.com/NAME.keys`); *repeatable* |
 | `ROOT_PASSWORD_HASH` | `--root-password-hash` | a crypt(3) hash (`mkpasswd -m sha-512`); plain text is refused |
-| `USER_NAME` | `--user` | also create this (second) user: lowercase letters, digits, `-` and `_`; not `root`. Needs `USER_PASSWORD_HASH` or `USER_SSH_KEY` |
+| `USER_NAME` | `--user` | also create this (second) user: lowercase letters, digits, `-` and `_`; not `root`. Needs `USER_PASSWORD_HASH`, `USER_SSH_KEY` or `USER_SSH_GITHUB_USER` |
 | `USER_PASSWORD_HASH` | `--user-password-hash` | the user's crypt(3) hash; plain text is refused |
 | `USER_SSH_KEY` | `--user-ssh-key` | a public key line for the user's `~/.ssh/authorized_keys` (*repeatable*) |
+| `USER_SSH_GITHUB_USER` | `--user-ssh-github-user` | add the public keys GitHub publishes for this account to the user's `authorized_keys`; *repeatable* |
 | `USER_SUDO` | `--user-sudo` | add the user to the `sudo` group (needs `USER_PASSWORD_HASH`, since sudo asks for it) |
 | `SKIP_FIRSTLOGIN_WIZARD` | `--skip-first-login-wizard` | removes Armbian's interactive first-login prompt |
 
