@@ -48,6 +48,10 @@ jobs:
         run: python -m pytest -q image/tools tools
       - name: Web config generator against the installer's validator
         run: node test/test-site-config.js
+      - name: USB flasher modules (sparse, GPT, FAT, rockusb, fastboot, end to end)
+        run: |
+          sudo apt-get install -y --no-install-recommends dosfstools mtools
+          for t in pure protocol fat e2e; do node test/test-flash-$t.mjs; done
       - name: Installer settings tests (dry run, config parsing, saved settings)
         run: installer/test-installer.sh
       - name: First-boot script tests

@@ -53,6 +53,7 @@ a{color:var(--red)}
 <header>
   <img src="logo.svg" alt="Cat ears over a hammer and sickle in one circle">
   <h1>Config generator<small>The People's RNode</small></h1>
+<p style="margin:0 0 0 auto"><a href="flash.html">USB flasher (experimental)</a></p>
 </header>
 <p class="lead">Fill in what you need and leave the rest. This makes the <code>bobcat-install.conf</code> file that goes on the flasher SD card next to the image. Everything happens in this page; nothing you type is sent anywhere.</p>
 
@@ -191,6 +192,7 @@ a{color:var(--red)}
       if (input) input.classList.add("invalid");
     });
     $("out").textContent = last.text;
+    try { if (!last.errors.length) localStorage.setItem("bobcat-flash-settings", last.text); } catch (e) {}
     const s = $("status");
     const blocked = last.errors.length > 0 || last.empty;
     s.className = "status " + (last.errors.length ? "bad" : last.empty ? "" : "ok");

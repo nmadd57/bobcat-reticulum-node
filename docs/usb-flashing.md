@@ -75,6 +75,18 @@ U-Boot also has `fastboot usb 0`, which WebUSB can use. Verified on one unit:
 
 Not yet done: this whole sequence on a real image, and the browser version (WebUSB) of either step.
 
+## The browser flasher (`site/flash.html`)
+
+The page does the two phases above from Chrome or Edge over WebUSB: download mode writes the image's partition
+table (with `rootfs` extended to the end of the disk) and a temporary 8 MiB boot partition holding a
+`fastboot usb 0` script, then resets; fastboot then flashes `rootfs`, and `bootfs` last (with
+`bobcat-install.conf` added to it), and reboots. The image (`bobcat-g295-emmc.img.xz` or the unpacked `.img`) is
+chosen from disk because GitHub release downloads send no CORS headers. The `.xz` is decompressed in the browser.
+
+Tested: every module against emulated boards and real filesystem tools (`test/test-flash-*.mjs`), the sparse
+encoder against `simg2img`, and the fastboot write path by hand on a real unit. **Not yet tested:** the page
+itself on a real unit. Linux needs a udev rule for the USB ids; Windows needs the WinUSB driver.
+
 ## Seeding the settings file
 
 For the standalone image, put `bobcat-install.conf` on its FAT boot partition before writing (inside the image file,

@@ -6,7 +6,7 @@ name: Config generator (GitHub Pages)
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["site/**", "tools/usb-flash/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -32,9 +32,17 @@ jobs:
       - name: Install dependencies for the installer's validator
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends python3-yaml
+          sudo apt-get install -y --no-install-recommends python3-yaml u-boot-tools dosfstools mtools
       - name: Test the generator against the installer
         run: node test/test-site-config.js
+      - name: Test the USB flasher modules
+        run: |
+          for t in pure protocol fat e2e; do node test/test-flash-$t.mjs; done
+      - name: Build the fastboot boot partition for the USB flasher
+        run: |
+          tools/usb-flash/build-flashmode.sh --mode fastboot --out /tmp/flashmode
+          mkdir -p site/flash/flashmode
+          cp /tmp/flashmode/fat.img site/flash/flashmode/fat.img
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
