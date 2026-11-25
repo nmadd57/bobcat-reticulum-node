@@ -139,6 +139,12 @@ details summary{cursor:pointer;font-weight:600}
 <aside class="side">
   <div class="note"><strong>Your file contains secrets</strong> if you set a Wi-Fi passphrase. It stays on your computer; the node clears the passphrase from the SD card after a successful install.</div>
   <div id="status" class="status"></div>
+  <div class="btns" style="margin:0 0 10px">
+    <button type="button" id="saveCookie">Save settings in a cookie</button>
+    <button type="button" id="clearCookie">Forget saved settings</button>
+  </div>
+  <div class="check"><input type="checkbox" id="cookieSecrets"><label for="cookieSecrets">Include passwords and the password hash in the cookie</label></div>
+  <div class="status" id="cookieStatus"></div>
   <pre id="out" aria-label="Generated bobcat-install.conf"></pre>
   <p class="hint">Passphrases are hidden in this preview; the downloaded, copied and flashed file has them.</p>
   <div class="btns">
@@ -308,6 +314,36 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
     catch (e) { $("copy").textContent = "Select the text and copy it"; }
     setTimeout(() => { $("copy").textContent = "Copy"; }, 1800);
   });
+
+  // Remember the form in a cookie (this browser only). Passwords stay out unless asked for.
+  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash", "rootPlain"];
+  const cookieGet = () => { const m = document.cookie.split("; ").find((c) => c.startsWith(COOKIE + "=")); try { return m ? JSON.parse(decodeURIComponent(m.slice(COOKIE.length + 1))) : null; } catch (e) { return null; } };
+  function cookieStatus(text, cls) { const e = $("cookieStatus"); e.textContent = text; e.className = "status " + (cls || ""); }
+  $("saveCookie").addEventListener("click", () => {
+    const withSecrets = $("cookieSecrets").checked, data = { secrets: withSecrets, v: {} };
+    form.querySelectorAll("input[id], select[id], textarea[id]").forEach((el) => {
+      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot") return;
+      if (SECRET_IDS.includes(el.id) && !withSecrets) return;
+      data.v[el.id] = el.type === "checkbox" ? el.checked : el.value;
+    });
+    const text = encodeURIComponent(JSON.stringify(data));
+    if (text.length > 3800) { cookieStatus("Too big for a cookie (about 4 KB). Remove some SSH keys, or download the file instead.", "bad"); return; }
+    document.cookie = COOKIE + "=" + text + "; max-age=31536000; path=/; SameSite=Strict" + (location.protocol === "https:" ? "; Secure" : "");
+    cookieStatus(cookieGet() ? "Saved for a year in this browser" + (withSecrets ? ", with passwords." : ". Passwords are not included.") : "The browser refused to store the cookie.", cookieGet() ? "ok" : "bad");
+  });
+  $("clearCookie").addEventListener("click", () => {
+    document.cookie = COOKIE + "=; max-age=0; path=/; SameSite=Strict"; cookieStatus("Saved settings removed.", "ok");
+  });
+  (function restore() {
+    const data = cookieGet(); if (!data || !data.v) return;
+    for (const [id, val] of Object.entries(data.v)) {
+      const el = document.getElementById(id); if (!el || !form.contains(el)) continue;
+      if (el.type === "checkbox") el.checked = !!val; else el.value = val;
+    }
+    $("cookieSecrets").checked = !!data.secrets;
+    form.dispatchEvent(new Event("change"));
+    cookieStatus("Settings restored from this browser's cookie.", "ok");
+  })();
   window.bobcatSettings = () => ({ text: last.errors.length ? "" : last.text, errors: last.errors.length });
   update();
 })();
