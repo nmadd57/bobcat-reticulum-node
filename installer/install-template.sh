@@ -882,7 +882,7 @@ setup_os() {
         fi
         [[ -z "$OPT_USER_HASH" ]] || printf '%s:%s\n' "$OPT_USER_NAME" "$OPT_USER_HASH" | chpasswd -e
         if [[ -n "$OPT_USER_KEYS" ]]; then
-            local uhome ukeys="" ukey
+            local uhome ukey
             uhome="$(getent passwd "$OPT_USER_NAME" | cut -d: -f6)"
             install -d -m 700 -o "$OPT_USER_NAME" -g "$OPT_USER_NAME" "$uhome/.ssh"
             touch "$uhome/.ssh/authorized_keys"
