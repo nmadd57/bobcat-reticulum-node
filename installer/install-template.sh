@@ -1060,6 +1060,10 @@ write_config() {
             replace=1
         elif [[ -r "$stamp" && "$(sha256sum "$cfg" | cut -d' ' -f1)" == "$(cat "$stamp")" ]]; then
             replace=1
+        elif [[ ! -s "$cfg" ]]; then
+            # An empty file is what a power loss or watchdog reset leaves behind (the data was never flushed);
+            # nobody edited it, and keeping it would leave the node without its radio interface.
+            replace=1
         fi
         if [[ "$replace" -eq 0 ]]; then
             note "keeping $cfg (edited by hand; use --force-config to replace it)"
@@ -1083,6 +1087,7 @@ write_config() {
     render_reticulum_config > "$cfg"
     chmod 600 "$cfg"
     sha256sum "$cfg" | cut -d' ' -f1 > "$stamp"
+    sync "$cfg" "$stamp" 2>/dev/null || sync   # reach the disk now: a reset during the rest of the install must not leave empty files
     note "wrote $cfg"
 }
 
