@@ -200,9 +200,9 @@ details summary{cursor:pointer;font-weight:600}
   <progress id="p1" max="1" value="0" hidden></progress><div class="status" id="s3status"></div>
 </section>
 
-<section class="card off" id="s4">
+<section class="card" id="s4">
   <h2>3. Flash</h2>
-  <p class="status" style="margin-top:0">The board restarts into fastboot (<code>18d1:4d00</code>). Press <em>Connect</em> and choose it. The flash takes a few minutes; keep the cable in and this tab open.</p>
+  <p class="status" style="margin-top:0">The board restarts into fastboot (<code>18d1:4d00</code>). Press <em>Connect</em> and choose it. A board that is already in fastboot can be connected here directly, without step 2. The flash takes a few minutes; keep the cable in and this tab open.</p>
   <div class="row2"><button id="connectFb" class="primary" type="button">Connect</button><button id="flash" type="button" disabled>Flash</button></div>
   <div class="status" id="phase"></div><progress id="p2" max="1" value="0" hidden></progress><div class="status" id="s4status"></div>
 </section>
@@ -402,7 +402,7 @@ async function accept(s, label) {
   try {
     const l = await readLayout(openStream);
     status("fileStatus", `${label}: bootfs ${fmt((l.boot.last - l.boot.first + 1) * 512)}, rootfs ${fmt((l.root.last - l.root.first + 1) * 512)}. Looks right.`, "ok");
-    enable("s3", true); log("image accepted: " + label);
+    enable("s3", true); log("image accepted: " + label); refreshFlash();
   } catch (err) {
     src = null;
     const hint = s.remote ? " (if this is a network error, the server probably does not allow cross-origin reads)" : "";
@@ -442,12 +442,18 @@ useRepo();
 
 $("confirm").addEventListener("change", () => { $("connectRock").disabled = !$("confirm").checked; });
 
+function refreshFlash() { $("flash").disabled = !(fb && src); }
 async function pick(filters) { return navigator.usb.requestDevice({ filters }); }
 
 $("connectRock").addEventListener("click", async () => {
   try {
-    const dev = await pick([ROCKUSB_FILTER]); rock = new RockUsb(dev); await rock.open();
-    const info = await rock.flashInfo(); log(`connected: download mode, ${info.sectors} sectors (${fmt(info.sectors * 512)})`);
+    const dev = await pick([ROCKUSB_FILTER]);
+    if (dev.deviceVersionMajor === 1 && !dev.productName) {   // bcdDevice 0100 and no product string: the chip's own Maskrom mode
+      status("s3status", "That is Maskrom (the chip's built-in mode), not U-Boot's download mode, and this page cannot flash from it. Power the board off, then hold Recovery and press Reset (or Recovery while applying power) so the board's own U-Boot answers as \"USB download gadget\".", "bad");
+      log("device is in Maskrom (bcdDevice 0100, no product name)"); return;
+    }
+    rock = new RockUsb(dev); await rock.open();
+    const info = await rock.flashInfo(); log(`connected: ${dev.productName || "download mode"}, ${info.sectors} sectors (${fmt(info.sectors * 512)})`);
     status("s3status", `Connected. eMMC ${fmt(info.sectors * 512)}.`, "ok"); $("writeBoot").disabled = false;
   } catch (err) { status("s3status", explain(err), "bad"); log("error: " + err.message); }
 });
@@ -463,8 +469,8 @@ $("writeBoot").addEventListener("click", async () => {
 
 $("connectFb").addEventListener("click", async () => {
   try {
-    const dev = await pick([FASTBOOT_FILTER]); fb = new Fastboot(dev); fb.log = (t) => log("board: " + t); await fb.open();
-    log("connected: fastboot, " + (await fb.getvar("version-bootloader"))); status("s4status", "Connected. Press Flash.", "ok"); $("flash").disabled = false;
+    const dev = await pick([FASTBOOT_FILTER, { vendorId: 0x18d1, productId: 0x4d00 }]); fb = new Fastboot(dev); fb.log = (t) => log("board: " + t); await fb.open();
+    log("connected: fastboot, " + (await fb.getvar("version-bootloader"))); status("s4status", src ? "Connected. Press Flash." : "Connected. Choose an image in step 1, then press Flash.", "ok"); refreshFlash();
   } catch (err) { status("s4status", explain(err), "bad"); log("error: " + err.message); }
 });
 
