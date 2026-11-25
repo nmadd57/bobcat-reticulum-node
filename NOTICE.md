@@ -12,3 +12,12 @@ Everything else in this repository is MIT licensed (`LICENSE`).
 The images built by `image/build-image.sh` and `image/build-flasher.sh` are modified copies of the community
 image and flasher. Check that project's terms before redistributing it. This repository
 publishes the build recipe, not the image.
+
+## Rockchip loader files (fetched by the web flasher, not stored here)
+
+The web flasher's Maskrom stage downloads `rk3566_ddr_1056MHz_v1.26.bin` and `rk356x_usbplug_v1.17.bin` from
+Rockchip's [rkbin](https://github.com/rockchip-linux/rkbin) repository (commit `3e288fe8`), under Rockchip's license in that
+repository, which permits use, copying and distribution with the notices kept. Unmodified copies are kept in
+[nmadd57/rockchip-loader-mirror](https://github.com/nmadd57/rockchip-loader-mirror), and the full upstream histories in the
+forks [nmadd57/rkbin](https://github.com/nmadd57/rkbin) and [nmadd57/rkdeveloptool](https://github.com/nmadd57/rkdeveloptool),
+so they stay available if upstream removes them. The page checks a SHA-256 before sending anything to a board.

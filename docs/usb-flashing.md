@@ -96,7 +96,7 @@ Differences found on a G290 (59,325 MB eMMC, 121,497,728 sectors):
 The web page's first phase therefore writes the partition table, the boot area **and the image's bootloader
 region**, then verifies all three. The page also does the **Maskrom stage** itself (`site/flash/maskrom.mjs`): when the device it is given is in Maskrom
 (`bcdDevice 0100`, no product name) it downloads the two loader files from a pinned commit of Rockchip's public `rkbin`
-repository, checks their SHA-256, and sends them with the boot ROM's vendor requests (`0x471` DRAM init, then `0x472` USB
+repository (then the fork `nmadd57/rkbin`, then [`nmadd57/rockchip-loader-mirror`](https://github.com/nmadd57/rockchip-loader-mirror), which holds just these two files, if the first is unavailable), checks their SHA-256, and sends them with the boot ROM's vendor requests (`0x471` DRAM init, then `0x472` USB
 plug; 4096-byte pieces, CRC-CCITT at the end), exactly as `rkdeveloptool db` does. Verified on a G290: the module,
 run through Node's WebUSB implementation, took a board from Maskrom to the `USB-MSC` loader state. A U-Boot unit can be
 put back into Maskrom with `rkdeveloptool rd 3` from its download mode.

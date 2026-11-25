@@ -462,7 +462,7 @@ $("connectRock").addEventListener("click", async () => {
     if (isMaskrom(dev)) {   // a unit that has not run U-Boot's download mode: send the loader first
       status("s3status", "The board is in Maskrom. Downloading the loader from Rockchip's public repository...");
       log("device is in Maskrom (bcdDevice 0100, no product name): sending the loader");
-      const loader = await fetchLoader();
+      const loader = await fetchLoader(fetch, undefined, log);
       log("loader files verified (SHA-256)"); await bootRom(dev, loader, { log });
       status("s3status", "The loader is running. Waiting for the board to come back...");
       dev = await findLoaderDevice(8000);

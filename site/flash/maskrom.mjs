@@ -7,7 +7,12 @@
 export const MASKROM_FILTER = { vendorId: 0x2207, productId: 0x350a };
 export const LOADER = {
   commit: "3e288fe814e059dd06833495f845cab04ac20a5c",
-  base: "https://raw.githubusercontent.com/rockchip-linux/rkbin/3e288fe814e059dd06833495f845cab04ac20a5c/bin/rk35/",
+  // Tried in order; every download is checked against the SHA-256 below, so a mirror needs no trust.
+  sources: [
+    "https://raw.githubusercontent.com/rockchip-linux/rkbin/3e288fe814e059dd06833495f845cab04ac20a5c/bin/rk35/",   // upstream
+    "https://raw.githubusercontent.com/nmadd57/rkbin/3e288fe814e059dd06833495f845cab04ac20a5c/bin/rk35/",          // fork (same commit)
+    "https://raw.githubusercontent.com/nmadd57/rockchip-loader-mirror/main/loaders/",                              // mirror of just these files
+  ],
   ddr: { name: "rk3566_ddr_1056MHz_v1.26.bin", sha256: "9966c21aadf00737ccecc2fad6fe3c902ff26956433029f70dfd759d4f60616a" },
   plug: { name: "rk356x_usbplug_v1.17.bin", sha256: "4038b7857b840f539760decc0daf1601b8ff61cc17798101e93b11128a7f333e" },
 };
@@ -56,14 +61,21 @@ async function sendStage(dev, index, data) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const hex = (u8) => [...u8].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-export async function fetchLoader(fetchFn = fetch, digest = (b) => crypto.subtle.digest("SHA-256", b)) {
+export async function fetchLoader(fetchFn = fetch, digest = (b) => crypto.subtle.digest("SHA-256", b), log = () => {}, spec = LOADER) {
   const out = {};
-  for (const [key, f] of [["ddr", LOADER.ddr], ["plug", LOADER.plug]]) {
-    const r = await fetchFn(LOADER.base + f.name);
-    if (!r.ok) throw new Error(`could not download ${f.name} (${r.status})`);
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    if (hex(new Uint8Array(await digest(bytes))) !== f.sha256) throw new Error(`${f.name} does not match the expected checksum; refusing to send it`);
-    out[key] = bytes;
+  for (const [key, f] of [["ddr", spec.ddr], ["plug", spec.plug]]) {
+    const problems = [];
+    for (const base of spec.sources) {
+      try {
+        const r = await fetchFn(base + f.name);
+        if (!r.ok) { problems.push(`${new URL(base).pathname.split("/")[1]}: HTTP ${r.status}`); continue; }
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        if (hex(new Uint8Array(await digest(bytes))) !== f.sha256) { problems.push(`${new URL(base).pathname.split("/")[1]}: checksum mismatch`); continue; }
+        out[key] = bytes; if (base !== spec.sources[0]) log(`${f.name}: taken from ${base}`);
+        break;
+      } catch (e) { problems.push(`${new URL(base).pathname.split("/")[1]}: ${e.message}`); }
+    }
+    if (!out[key]) throw new Error(`could not get ${f.name} with a matching checksum (${problems.join("; ")}); nothing was sent to the board`);
   }
   return out;
 }

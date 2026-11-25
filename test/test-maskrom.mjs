@@ -31,12 +31,29 @@ class Dev { constructor() { this.calls = []; this.opened = false; this.closed = 
   ok(log.length === 2, "progress is logged for both stages");
 }
 ok(isMaskrom({ deviceVersionMajor: 1, deviceVersionMinor: 0, productName: undefined }) && !isMaskrom({ deviceVersionMajor: 2, deviceVersionMinor: 2, productName: "USB download gadget" }) && !isMaskrom({ deviceVersionMajor: 1, deviceVersionMinor: 0, productName: "USB-MSC" }), "only the boot ROM (1.00, no product name) counts as Maskrom");
-{ // fetchLoader checks the hashes
-  const real = { [LOADER.base + LOADER.ddr.name]: null }; void real;
-  const bad = async () => ({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer });
-  let msg = ""; try { await fetchLoader(bad, async (b) => createHash("sha256").update(b).digest()); } catch (e) { msg = e.message; }
-  ok(/checksum/.test(msg), "a file with the wrong checksum is refused before anything is sent");
-  const miss = async () => ({ ok: false, status: 404 }); msg = ""; try { await fetchLoader(miss); } catch (e) { msg = e.message; }
-  ok(/404/.test(msg), "a failed download is reported");
+{ // fetchLoader: checksums are checked and the sources are tried in order
+  const sha = (b) => createHash("sha256").update(b).digest();
+  const good = { ddr: Buffer.from("ddr-bytes"), plug: Buffer.from("plug-bytes") };
+  const L = { ...LOADER, ddr: { ...LOADER.ddr, sha256: createHash("sha256").update(good.ddr).digest("hex") }, plug: { ...LOADER.plug, sha256: createHash("sha256").update(good.plug).digest("hex") } };
+  const mk = (behaviour) => async (url) => {
+    const name = url.split("/").pop(), which = LOADER.sources.findIndex((b) => url.startsWith(b)), act = behaviour[which];
+    if (act === "404") return { ok: false, status: 404 };
+    if (act === "throw") throw new Error("network down");
+    const data = act === "bad" ? Buffer.from("tampered") : name === LOADER.ddr.name ? good.ddr : good.plug;
+    return { ok: true, arrayBuffer: async () => new Uint8Array(data).buffer };
+  };
+  const logs = [];
+  let r = await fetchLoader(mk(["ok", "ok", "ok"]), sha, (m) => logs.push(m), L);
+  ok(Buffer.compare(Buffer.from(r.ddr), good.ddr) === 0 && logs.length === 0, "upstream is used first, and nothing else is logged");
+  r = await fetchLoader(mk(["404", "ok", "ok"]), sha, (m) => logs.push(m), L);
+  ok(Buffer.compare(Buffer.from(r.plug), good.plug) === 0 && logs.some((m) => m.includes("nmadd57/rkbin")), "when upstream is gone the fork is used, and the log says so");
+  logs.length = 0; r = await fetchLoader(mk(["throw", "404", "ok"]), sha, (m) => logs.push(m), L);
+  ok(Buffer.compare(Buffer.from(r.ddr), good.ddr) === 0 && logs.some((m) => m.includes("rockchip-loader-mirror")), "when upstream and fork are gone the mirror is used");
+  r = await fetchLoader(mk(["bad", "bad", "ok"]), sha, () => {}, L);
+  ok(Buffer.compare(Buffer.from(r.ddr), good.ddr) === 0, "a source serving different bytes is skipped, not trusted");
+  let msg = ""; try { await fetchLoader(mk(["bad", "bad", "bad"]), sha, () => {}, L); } catch (e) { msg = e.message; }
+  ok(/checksum mismatch/.test(msg) && /nothing was sent/.test(msg), "if every source fails the checksum nothing is sent");
+  msg = ""; try { await fetchLoader(mk(["404", "404", "throw"]), sha, () => {}, L); } catch (e) { msg = e.message; }
+  ok(/HTTP 404/.test(msg) && /network down/.test(msg), "the error names what went wrong at each source");
 }
 process.exit(failed ? 1 : 0);
