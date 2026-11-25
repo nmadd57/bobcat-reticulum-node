@@ -7,8 +7,8 @@
 Turn a retired **Helium hotspot (Bobcat Miner 300, G290/G295)** into a
 [Reticulum](https://reticulum.network/) LoRa node. The board's onboard **SX1302**
 radio becomes one RNode-compatible channel (default 915 MHz, 125 kHz, SF8, CR 4/5).
-You write one SD card, drop in one settings file, and power on: the unit flashes
-itself, installs the node and joins your Wi-Fi with nothing typed on the device.
+Flash it from your browser over USB, with your settings in place, and the unit installs
+the node itself and joins your network with nothing typed on the device.
 
 > **Unofficial.** This project is not made by, affiliated with or endorsed by Bobcat,
 > Bobber or Helium. It reuses hardware that is otherwise stranded.
@@ -16,42 +16,64 @@ itself, installs the node and joins your Wi-Fi with nothing typed on the device.
 > **Hardware at your own risk.** Never transmit without an antenna connected.
 > TX power is capped at 16 dBm until you have measured your unit's real output.
 
-## Convert a Helium node in five steps
+## Convert a Helium node
 
-Your Wi-Fi, network, system and radio settings go in a small file that you drop on
-the SD card next to the image, so nothing secret is baked into it and no network cable
-is needed.
+### Web flasher (recommended): [bobcat.galaxyone.space](https://bobcat.galaxyone.space/)
 
-1. Get `bobcat-g295-flasher.img.xz` from a release (or run **Actions → Build images**).
-2. Make your settings file with the [**web config generator**](https://bobcat.galaxyone.space/)
-   (it runs in your browser; nothing is sent anywhere), or with the questionnaire (or edit
-   [`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example)
-   by hand; [reference](docs/config-reference.md)):
-   ```
-   python3 tools/make-config.py          # asks questions, checks the answers, writes bobcat-install.conf
-   ```
-3. Write the image to an SD card like any other image:
+One page makes your settings file and writes the OS image to the unit over USB. No SD card, no tools
+to install. It runs in your browser (**Chrome or Edge**); your settings and the image never leave your
+computer.
+
+1. Open **[bobcat.galaxyone.space](https://bobcat.galaxyone.space/)** and fill in what you need: Wi-Fi
+   (optional; Ethernet DHCP is the default), hostname, SSH keys for root or pasted in or pulled from GitHub,
+   a root password (hashed in your browser), optionally a second user with sudo, and the radio settings.
+   You can save the form in a cookie (passwords only if you tick the box).
+2. Under **Flash over USB**, pick the image: the latest release of this project (the default), a file you
+   already have, or a URL.
+3. Connect the board's **OTG** USB port to your computer. Hold **Recovery**, press and release **Reset**,
+   then let go of Recovery after about two seconds. Press *Connect* and choose *USB download gadget*.
+4. The page writes a small boot area and restarts the board into fastboot. Press *Connect* again, choose the
+   fastboot device, and press *Flash*. It writes the system, adds your settings file, and reboots.
+
+First boot then installs the node by itself: the LED **blinks blue** while it installs, **turns steady red** if
+there is no network (no address after about 20 seconds), **blinks red slowly** after a failed attempt, and turns
+**green** when it is done and safe to power off.
+
+Needs: Chrome, Edge or another Chromium browser. On Linux, a udev rule for the USB ids (the page shows
+one); on Windows, the WinUSB driver for the two devices. How it works and its limits:
+[`docs/usb-flashing.md`](docs/usb-flashing.md).
+
+> **Status:** every step is tested against an emulated board and the underlying protocol was verified by
+> hand on a real unit, but the page itself has not yet flashed a unit end to end.
+
+### Alternative: an SD card
+
+If you cannot use the web flasher: make the settings file on the same page (**Download**), or with the
+questionnaire (`python3 tools/make-config.py`), or edit
+[`image/firstboot/bobcat-install.conf.example`](image/firstboot/bobcat-install.conf.example) by hand
+([reference](docs/config-reference.md)). Then:
+
+1. Get `bobcat-g295-flasher.img.xz` from a release (or run **Actions → Build images**) and write it to an
+   SD card:
    ```
    xz -dc bobcat-g295-flasher.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
    ```
    (or use any imaging tool). The card now has a small FAT partition, **BOBCFG**.
-4. Copy `bobcat-install.conf` onto the card's **BOBCFG** drive (re-plug the card if
-   it does not show up). Keep the exact file name.
-5. Put the card in the Bobcat and power on. It flashes its internal storage, copying
-   your settings across. Three quick flashes mean it is done and the settings were copied (two slow
-   flashes mean no settings were found); then power off and remove the card.
-   Power on again: first boot installs the node by itself and joins your Wi-Fi.
+2. Copy `bobcat-install.conf` onto the card's **BOBCFG** drive, keeping the exact file name.
+3. Put the card in the Bobcat and power on. It flashes its internal storage, copying your settings across.
+   Three quick flashes mean it is done and the settings were copied (two slow flashes mean no settings were
+   found); then power off and remove the card and power on again.
 
 What the settings file can carry: Wi-Fi (2.4 GHz only, hidden SSIDs supported) or a
-full [netplan](https://netplan.io/) config, the radio and Reticulum options, and SSH
-public keys for root, pasted in or pulled from a GitHub user.
+full [netplan](https://netplan.io/) config, the radio and Reticulum options, SSH public keys for root and
+for an optional second user, pasted in or pulled from GitHub users, and the passwords as hashes.
 
-**The Wi-Fi network needs internet access** for the install (packages, clock, optional
+**The network needs internet access** for the install (packages, clock, optional
 GitHub keys); a network that only reaches the local network cannot install a node, and
 the installer says so before changing anything. A running node does not need internet.
 
 **This erases the Bobcat's internal storage.** Details, the standalone SD variant and
-how it works: [`image/README.md`](image/README.md).
+how the SD flasher works: [`image/README.md`](image/README.md).
 
 Afterwards, on the unit:
 
@@ -84,12 +106,12 @@ cannot join networks that require it; and Wi-Fi on this board is 2.4 GHz only.
 |---|---|
 | `installer/` | the self-extracting installer (template + builder) |
 | `image/` | first-boot service, flasher and image builders, partition tool |
-| `tools/` | `make-config.py`: questionnaire that writes your `bobcat-install.conf` |
-| `site/` | the web config generator (static page, published with GitHub Pages) |
+| `site/` | the web page: config generator and WebUSB flasher (static, published with GitHub Pages) |
+| `tools/` | `make-config.py` (questionnaire that writes your `bobcat-install.conf`) and `usb-flash/` (builds the temporary fastboot boot area) |
+| `test/` | tests for the web page (generator, hashing, flasher modules) |
 | `bobcat-g295/` | board profile, reset script, announce test, netplan examples |
 | `sx1302_rns/` | the Reticulum SX1302 interface (a modified copy of an MIT project) plus the vendored Semtech HAL |
-| `netboot/`, `maas/` | PXE / MAAS design notes (experimental) |
-| `docs/` | `config-reference.md` (all settings), `hardware-notes.md`, `development-notes.md` |
+| `docs/` | `config-reference.md` (all settings), `usb-flashing.md`, `hardware-notes.md`, `self-recovery.md`, `maskrom-recovery.md`, `development-notes.md` |
 | `.github/workflows/` | CI and the image build |
 
 ## Building (CI)
@@ -97,9 +119,12 @@ cannot join networks that require it; and Wi-Fi on this board is 2.4 GHz only.
 Everything is built in GitHub Actions:
 
 - **CI** (`ci.yml`): shellcheck, the Python test suite (including a HAL ABI
-  check that compiles the vendored C code), the first-boot script tests, and the
+  check that compiles the vendored C code), the first-boot script tests, the web page's tests
+  (generator, password hashing, flasher modules against emulated boards) and the
   installer bundle (uploaded as an artifact).
-- **Build image** (`build-image.yml`): downloads the community base image
+- **Config generator** (`pages.yml`): tests the page, builds the fastboot boot area, copies the latest
+  release image next to the page (GitHub's release downloads cannot be read by a web page) and publishes it.
+- **Build images** (`build-image.yml`): downloads the community base image
   (checksum-pinned), patches it with `debugfs`, runs a filesystem check, and
   uploads or releases the result. Push a `v*` tag for a release.
 
@@ -110,10 +135,10 @@ workflows run.
 
 | | |
 |---|---|
-| Verified on a real unit | TX/RX with another node through Reticulum; service starts at boot; installer re-runs; radio-setting flags; Wi-Fi (hidden SSID) and Ethernet through netplan |
-| Tested in CI / locally only | the settings parser and every validation (dry run); first-boot and flasher script logic (bash and dash); image and flasher patching, partition tables, FAT and mounts; the Wi-Fi shortcut's file generation and the auto-revert mechanism |
+| Verified on a real unit | the USB protocol steps the web flasher uses (download mode write, fastboot write past 32 MiB, whole-image write and first boot); TX/RX with another node through Reticulum; service starts at boot; installer re-runs; radio-setting flags; Wi-Fi (hidden SSID) and Ethernet through netplan |
+| Tested in CI / locally only | the web flasher's code against emulated boards; password hashing against openssl; the settings parser and every validation (dry run); first-boot and flasher script logic (bash and dash); image and flasher patching, partition tables, FAT and mounts; the Wi-Fi shortcut's file generation and the auto-revert mechanism |
 | **Known problem** | the flasher card is not guaranteed to boot on a unit that already runs this system (it booted the eMMC and ignored the card); see [`image/README.md`](image/README.md#re-flashing-a-unit-that-already-runs-this-system-known-problem). Do not wipe the eMMC bootloader to force it: that left a unit in USB Maskrom mode; recovery notes: [`docs/maskrom-recovery.md`](docs/maskrom-recovery.md) |
-| **Not tested** | the flasher's settings copy inside its BusyBox environment (the first flash found no settings; the v0.2.2 scan and log are untested on hardware); the Wi-Fi shortcut joining a brand-new network; PXE / network install and MAAS (design only, with a blocker: the bootloader has no EFI) |
+| **Not tested** | the web flasher page on a real unit end to end; the flasher's settings copy inside its BusyBox environment (the first flash found no settings; the v0.2.2 scan and log are untested on hardware); the Wi-Fi shortcut joining a brand-new network; PXE / network install and MAAS (research only; the bootloader has no EFI) |
 
 ## Credits and licenses
 

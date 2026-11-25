@@ -22,11 +22,6 @@ Tested on RAK Hotspot Miner V2.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — symptom/cause/fix table,
   logging, and hardware checklist.
 - [`docs/systemd-unit.md`](docs/systemd-unit.md) — optional systemd service for `rnsd`.
-- [`PLAN.md`](PLAN.md) — phased implementation plan, architecture, risks, and
-  acceptance criteria.
-- [`SX1302_RETICULUM_FINDINGS.md`](SX1302_RETICULUM_FINDINGS.md) — research
-  notes covering the HAL, Reticulum interfaces, hardware constraints, and the
-  reasoning behind the chosen approach.
 - [`vendor/README.md`](vendor/README.md) — provenance and patch policy for the
   vendored upstream copy.
 

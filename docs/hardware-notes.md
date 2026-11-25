@@ -79,4 +79,4 @@ Downloaded and inspected (not run). It is an SD card image: a GPT disk with a
 | `rnsd-sx1302` starts at boot and owns the radio | Wi-Fi shortcut against a new SSID (generation, validation and apply were tested separately) |
 | Installer re-runs (idempotent), radio-setting flags | Auto-revert triggering from a real connectivity loss |
 | netplan Wi-Fi (hidden SSID) and Ethernet | Running the new flasher on a unit: the settings copy in its BusyBox environment, then the first boot |
-| netplan Wi-Fi (hidden SSID) and Ethernet | PXE / network install, MAAS (see `netboot/` and `maas/`) |
+| netplan Wi-Fi (hidden SSID) and Ethernet | PXE / network install, MAAS (not built; the bootloader has no EFI) |
