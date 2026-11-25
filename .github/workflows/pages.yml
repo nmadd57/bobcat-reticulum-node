@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
     paths: ["site/**", "tools/usb-flash/**", ".github/workflows/pages.yml"]
+  workflow_run:
+    workflows: ["Build images"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -45,6 +48,22 @@ jobs:
           tools/usb-flash/build-flashmode.sh --mode fastboot --out /tmp/flashmode
           mkdir -p site/flash/flashmode
           cp /tmp/flashmode/fat.img site/flash/flashmode/fat.img
+      - name: Publish the latest release image next to the page
+        # GitHub's release downloads send no CORS headers, so a page cannot read them. Pages does, so the
+        # USB flasher fetches the image from here. Skipped when there is no release yet.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName' || true)
+          if [ -z "$tag" ]; then echo "no release yet"; exit 0; fi
+          mkdir -p site/flash/image
+          if gh release download "$tag" --pattern 'bobcat-g295-emmc.img.xz' --dir site/flash/image; then
+            size=$(stat -c %s site/flash/image/bobcat-g295-emmc.img.xz)
+            printf '{"tag":"%s","name":"bobcat-g295-emmc.img.xz","size":%s}\n' "$tag" "$size" > site/flash/image/info.json
+            ls -l site/flash/image
+          else
+            echo "release $tag has no eMMC image; skipping"; rm -rf site/flash/image
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

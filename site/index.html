@@ -161,8 +161,12 @@ details summary{cursor:pointer;font-weight:600}
 <div class="note"><strong>This erases the unit's internal storage.</strong> Use the <code>bobcat-g295-emmc.img.xz</code> image from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a>, not the standalone SD image.</div>
 <section class="card" id="s1">
   <h2>1. The OS image</h2>
-  <input type="file" id="file" accept=".xz,.img">
-  <div class="status" id="fileStatus">Choose <code>bobcat-g295-emmc.img.xz</code> (or the unpacked <code>.img</code>). It is read in your browser and never uploaded.</div>
+  <div class="check"><input type="radio" name="src" id="srcRepo" value="repo" checked><label for="srcRepo">The latest release from this project <span class="status" id="repoInfo"></span></label></div>
+  <div class="check"><input type="radio" name="src" id="srcFile" value="file"><label for="srcFile">A file I have (<code>.img.xz</code> or <code>.img</code>)</label></div>
+  <div class="check"><input type="radio" name="src" id="srcUrl" value="url"><label for="srcUrl">A URL</label></div>
+  <div id="fileBox" hidden><input type="file" id="file" accept=".xz,.img"></div>
+  <div id="urlBox" hidden><input type="text" id="url" placeholder="https://example.org/bobcat-g295-emmc.img.xz" spellcheck="false"><p class="hint">The server must allow cross-origin requests (CORS), or the browser refuses to read it. GitHub release links do not. The image is read in your browser; nothing is uploaded.</p></div>
+  <div class="status" id="fileStatus"></div>
 </section>
 
 <section class="card off" id="s3">
@@ -313,7 +317,7 @@ import { Fastboot, FASTBOOT_FILTER } from "./flash/fastboot.mjs";
 import { phaseDownloadMode, phaseFastboot, readLayout } from "./flash/flasher.mjs";
 
 const $ = (id) => document.getElementById(id);
-let file = null, rock = null, fb = null, flashFat = null;
+let rock = null, fb = null, flashFat = null;
 
 const logEl = $("log"); let logStarted = false;
 function log(m) { if (!logStarted) { logEl.textContent = ""; logStarted = true; } logEl.textContent += `${new Date().toLocaleTimeString()}  ${m}\n`; logEl.scrollTop = logEl.scrollHeight; }
@@ -324,26 +328,62 @@ const fmt = (n) => n >= 2 ** 30 ? (n / 2 ** 30).toFixed(2) + " GiB" : (n / 2 ** 
 if (!("usb" in navigator)) { const u = $("unsupported"); u.hidden = false; u.textContent = "This browser has no WebUSB, so the page cannot talk to the board. Use Chrome, Edge or another Chromium browser."; }
 else if (!window.isSecureContext) { const u = $("unsupported"); u.hidden = false; u.textContent = "WebUSB needs a secure (https) page. Open this page over https."; }
 
-// The image as a fresh async iterable of bytes each time it is opened (the file is read twice: layout first, then data).
+// The chosen image as a fresh async iterable of bytes each time it is opened (read once for the layout, then for the data).
+let src = null;   // { name, size, open: () => Promise<ReadableStream of the stored bytes> }
 function openStream() {
-  const isXz = /\.xz$/i.test(file.name);
-  const rs = isXz ? new window["xz-decompress"].XzReadableStream(file.stream()) : file.stream();
+  const cur = src;
   return { async *[Symbol.asyncIterator]() {
+    const raw = await cur.open();
+    const rs = /\.xz$/i.test(cur.name) ? new window["xz-decompress"].XzReadableStream(raw) : raw;
     const r = rs.getReader();
     try { for (;;) { const { done, value } = await r.read(); if (done) return; yield value; } }
     finally { try { await r.cancel(); } catch {} }
   } };
 }
+const fetchSource = (url, name) => ({ name, size: 0, open: async () => { const r = await fetch(url); if (!r.ok) throw new Error(`could not download the image (${r.status})`); return r.body; } });
 
-$("file").addEventListener("change", async (e) => {
-  file = e.target.files[0]; if (!file) return;
-  status("fileStatus", "Reading the partition table...");
+async function accept(s, label) {
+  src = s; enable("s3", false); status("fileStatus", "Reading the partition table...");
   try {
     const l = await readLayout(openStream);
-    status("fileStatus", `${file.name} (${fmt(file.size)}): bootfs ${fmt((l.boot.last - l.boot.first + 1) * 512)}, rootfs ${fmt((l.root.last - l.root.first + 1) * 512)}. Looks right.`, "ok");
-    enable("s3", true); log("image accepted: " + file.name);
-  } catch (err) { status("fileStatus", "That does not look like the Bobcat OS image: " + err.message, "bad"); enable("s3", false); }
-});
+    status("fileStatus", `${label}: bootfs ${fmt((l.boot.last - l.boot.first + 1) * 512)}, rootfs ${fmt((l.root.last - l.root.first + 1) * 512)}. Looks right.`, "ok");
+    enable("s3", true); log("image accepted: " + label);
+  } catch (err) {
+    src = null;
+    const hint = s.remote ? " (if this is a network error, the server probably does not allow cross-origin reads)" : "";
+    status("fileStatus", "That does not look like the Bobcat OS image: " + err.message + hint, "bad");
+  }
+}
+let repoInfo = null;
+async function useRepo() {
+  if (!repoInfo) {
+    status("fileStatus", "Looking up the latest release...");
+    try { const r = await fetch("flash/image/info.json"); if (!r.ok) throw new Error(r.status); repoInfo = await r.json(); }
+    catch { status("fileStatus", "This site has no release image published yet. Choose a file or a URL instead.", "bad"); $("repoInfo").textContent = ""; return; }
+  }
+  $("repoInfo").textContent = `(${repoInfo.tag}, ${fmt(repoInfo.size)} download)`;
+  const s = fetchSource("flash/image/" + repoInfo.name, repoInfo.name); s.remote = true; s.size = repoInfo.size;
+  await accept(s, `${repoInfo.name} from release ${repoInfo.tag}`);
+}
+function pickSource() {
+  const v = document.querySelector('input[name="src"]:checked').value;
+  $("fileBox").hidden = v !== "file"; $("urlBox").hidden = v !== "url";
+  src = null; enable("s3", false); status("fileStatus", "");
+  if (v === "repo") useRepo();
+  else if (v === "file" && $("file").files[0]) fileChosen();
+  else if (v === "url" && $("url").value.trim()) urlChosen();
+}
+async function fileChosen() { const f = $("file").files[0]; if (f) await accept({ name: f.name, size: f.size, open: async () => f.stream() }, `${f.name} (${fmt(f.size)})`); }
+async function urlChosen() {
+  const u = $("url").value.trim(); let name;
+  try { const p = new URL(u); if (p.protocol !== "https:" && p.protocol !== "http:") throw 0; name = decodeURIComponent(p.pathname.split("/").pop()) || "image"; }
+  catch { status("fileStatus", "That is not a web address.", "bad"); return; }
+  const s = fetchSource(u, name); s.remote = true; await accept(s, name);
+}
+document.querySelectorAll('input[name="src"]').forEach((r) => r.addEventListener("change", pickSource));
+$("file").addEventListener("change", fileChosen);
+let urlTimer; $("url").addEventListener("input", () => { clearTimeout(urlTimer); urlTimer = setTimeout(urlChosen, 600); });
+useRepo();
 
 $("confirm").addEventListener("change", () => { $("connectRock").disabled = !$("confirm").checked; });
 
