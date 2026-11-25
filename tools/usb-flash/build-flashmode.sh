@@ -9,16 +9,19 @@
 # `ums 0 mmc 0` is placed there; the next boot exports the whole eMMC over USB.
 #
 # Output (in --out DIR, default ./flashmode):
-#   boot.scr   compiled U-Boot script that runs `ums 0 mmc 0`
+#   boot.scr   compiled U-Boot script that runs `ums 0 mmc 0` (--mode ums, the default) or
+#              `fastboot usb 0` (--mode fastboot)
 #   fat.img    8 MiB FAT12 partition holding boot.scr
 #   gpt.bin    34 sectors (protective MBR + GPT) whose partition 1 is fat.img at sector 32768
 # Write gpt.bin at sector 0 and fat.img at sector 32768 in download mode (both are inside the first 32 MiB).
 # Needs: mkimage (u-boot-tools), mkfs.fat (dosfstools), mcopy (mtools), python3.
 set -euo pipefail
-OUT=flashmode; DISK_SECTORS=122142720   # the 58 GiB Samsung eMMC; from READ_FLASH_INFO on the board
-while [[ $# -gt 0 ]]; do case "$1" in --out) OUT="$2"; shift 2 ;; --disk-sectors) DISK_SECTORS="$2"; shift 2 ;; *) echo "unknown option $1" >&2; exit 2 ;; esac; done
+OUT=flashmode; DISK_SECTORS=122142720; MODE=ums   # the 58 GiB Samsung eMMC; from READ_FLASH_INFO on the board
+while [[ $# -gt 0 ]]; do case "$1" in --out) OUT="$2"; shift 2 ;; --disk-sectors) DISK_SECTORS="$2"; shift 2 ;; --mode) MODE="$2"; shift 2 ;; *) echo "unknown option $1" >&2; exit 2 ;; esac; done
+[[ "$MODE" == ums || "$MODE" == fastboot ]] || { echo "--mode must be ums or fastboot" >&2; exit 2; }
 for t in mkimage mkfs.fat mcopy python3; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 1; }; done
 mkdir -p "$OUT"; cd "$OUT"; rm -f ums.cmd boot.scr fat.img gpt.bin
+if [[ "$MODE" == ums ]]; then
 cat > ums.cmd <<'SCRIPT'
 echo ==============================================
 echo  BOBCAT USB FLASH MODE: exporting the eMMC as a USB disk
@@ -27,6 +30,15 @@ echo ==============================================
 ums 0 mmc 0
 echo ums returned, falling back to the normal boot targets
 SCRIPT
+else
+cat > ums.cmd <<'SCRIPT'
+echo ==============================================
+echo  BOBCAT USB FLASH MODE: fastboot (fastboot usb 0)
+echo ==============================================
+fastboot usb 0
+echo fastboot returned, falling back to the normal boot targets
+SCRIPT
+fi
 mkimage -A arm64 -O linux -T script -C none -n "bobcat usb flash mode" -d ums.cmd boot.scr >/dev/null
 truncate -s 8M fat.img
 mkfs.fat -F 12 -s 4 -n BOBFLASH fat.img >/dev/null

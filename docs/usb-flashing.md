@@ -49,6 +49,32 @@ mode can write the small area where U-Boot looks for a boot script. So:
 
 Measured: 2.84 GB written in 144 s (19.8 MB/s); the byte-for-byte verification of the whole image matched.
 
+
+## Fastboot: the browser-friendly way (tested)
+
+U-Boot's `ums` makes the board a mass-storage disk, which browsers cannot open (WebUSB blocks that class). The same
+U-Boot also has `fastboot usb 0`, which WebUSB can use. Verified on one unit:
+
+- A boot script running `fastboot usb 0` (`tools/usb-flash/build-flashmode.sh --mode fastboot`) written through download
+  mode makes the board appear as `18d1:4d00`, interface class `ff/42/03` (standard fastboot).
+- `getvar all`: `max-download-size` 0x04000000 (64 MiB), partitions listed by GPT name with type and size,
+  `unlocked: no`, `secure: yes`. **Flashing is not blocked by the lock state**: `fastboot flash` returned OKAY while it
+  reported `unlocked: no`; `flashing unlock` is not implemented.
+- **Writes work past 32 MiB and in pieces larger than the buffer.** 200 MiB of random data flashed to a partition at sector
+  1,000,000 (the tool sent four sparse pieces, ~10.7 s) read back byte for byte over the mass-storage disk.
+- `fastboot flash gpt` returns OKAY but did not change the partitions the board lists in the same session; the table is
+  set through download mode (rockusb) instead, which works.
+
+### Flow for a whole image
+
+1. Download mode (Recovery + Reset). Write, through rockusb, the image's partition table (root partition extended to the
+   end of the disk, so the image's size fits) at sector 0 and an 8 MiB FAT12 `fat.img` holding `boot.scr` (runs
+   `fastboot usb 0`) at sector 32768, where the image's `bootfs` starts. Reset the device.
+2. Fastboot: `flash rootfs`, then `flash bootfs` **last** (it overwrites the temporary boot partition with the real one,
+   including any settings file), then `reboot`. No partition table change is needed afterwards.
+
+Not yet done: this whole sequence on a real image, and the browser version (WebUSB) of either step.
+
 ## Seeding the settings file
 
 For the standalone image, put `bobcat-install.conf` on its FAT boot partition before writing (inside the image file,
