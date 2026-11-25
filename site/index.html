@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Setup and flasher · The People's RNode</title>
+<title>Bobcat 3000 Reticulum Flasher</title>
 <meta name="description" content="Make the bobcat-install.conf settings file for a Bobcat Reticulum node. Everything happens in your browser.">
 <style>
 :root{--bg:#fbfaf8;--fg:#1d1b1a;--mut:#6b6560;--line:#ddd7d0;--card:#fff;--red:#c8001e;--redfg:#fff;--bad:#b00020;--ok:#1b6e3a;--code:#f3efea}
@@ -60,7 +60,7 @@ details summary{cursor:pointer;font-weight:600}
 <div class="wrap">
 <header>
   <img src="logo.svg" alt="Cat ears over a hammer and sickle in one circle">
-  <h1>Config generator and USB flasher<small>The People's RNode</small></h1>
+  <h1>Bobcat 3000 Reticulum Flasher<small>The People's RNode</small></h1>
 </header>
 <p class="lead">Fill in what you need and leave the rest. This makes the <code>bobcat-install.conf</code> file that goes on the flasher SD card next to the image. Everything happens in this page; nothing you type is sent anywhere.</p>
 
@@ -140,6 +140,7 @@ details summary{cursor:pointer;font-weight:600}
   <div class="note"><strong>Your file contains secrets</strong> if you set a Wi-Fi passphrase. It stays on your computer; the node clears the passphrase from the SD card after a successful install.</div>
   <div id="status" class="status"></div>
   <pre id="out" aria-label="Generated bobcat-install.conf"></pre>
+  <p class="hint">Passphrases are hidden in this preview; the downloaded, copied and flashed file has them.</p>
   <div class="btns">
     <button type="button" class="primary" id="dl">Download bobcat-install.conf</button>
     <button type="button" id="copy">Copy</button>
@@ -253,7 +254,8 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
       const input = $(field === "frequency" ? "frequencyMhz" : field);
       if (input) input.classList.add("invalid");
     });
-    $("out").textContent = last.text;
+    // The preview hides secrets (it may be on screen or in a screenshot); Download, Copy and the flasher use the real text.
+    $("out").textContent = last.text.replace(/^(\s*(?:WIFI_PASS|IFAC_PASSPHRASE)\s*=).+$/gm, "$1********");
     const s = $("status");
     const blocked = last.errors.length > 0 || last.empty;
     s.className = "status " + (last.errors.length ? "bad" : last.empty ? "" : "ok");
