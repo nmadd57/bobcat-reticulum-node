@@ -99,8 +99,11 @@ details summary{cursor:pointer;font-weight:600}
   <div class="row"><label for="sshKeys">SSH public keys for root (one per line)</label><textarea id="sshKeys" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><div class="err" data-for="sshKeys"></div></div>
   <div class="row"><label for="github">GitHub usernames allowed to log in as root</label><input type="text" id="github" placeholder="your-github-name, a-friend"><div class="err" data-for="github"></div><div class="status" id="ghStatus"></div>
     <p class="hint">The node fetches the keys those accounts publish (<code>github.com/NAME.keys</code>) once, while installing.</p></div>
-  <div class="row"><label for="rootHash">Root password hash (optional)</label><input type="text" id="rootHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="rootHash"></div>
-    <p class="hint">A hash, never the password itself. Make one with <code>mkpasswd -m sha-512</code> or <code>openssl passwd -6</code>. Without it the image default (<code>1234</code>) stays, so prefer SSH keys.</p></div>
+  <div class="row"><label for="rootPlain">Root password (optional)</label><input type="password" id="rootPlain" autocomplete="new-password" spellcheck="false">
+    <div class="check" style="margin-top:6px"><input type="checkbox" id="showRoot"><label for="showRoot">Show password</label></div>
+    <p class="hint">Hashed here in your browser (SHA-512 crypt); only the hash goes into the file, never the password. Without it the image default (<code>1234</code>) stays, so prefer SSH keys.</p></div>
+  <div class="row"><label for="rootHash">Root password hash</label><input type="text" id="rootHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="rootHash"></div>
+    <p class="hint">Filled in from the password above. You can also paste a hash you made yourself (<code>mkpasswd -m sha-512</code> or <code>openssl passwd -6</code>).</p></div>
   <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node)</label></div>
 </fieldset>
 
@@ -202,6 +205,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
 </div>
 
 <script src="config.js"></script>
+<script src="sha512crypt.js"></script>
 <script>
 (function () {
   "use strict";
@@ -257,6 +261,13 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   form.addEventListener("change", update);
   form.addEventListener("submit", (e) => e.preventDefault());
   $("showPass").addEventListener("change", () => { $("wifiPass").type = $("showPass").checked ? "text" : "password"; });
+
+  $("showRoot").addEventListener("change", () => { $("rootPlain").type = $("showRoot").checked ? "text" : "password"; });
+  $("rootPlain").addEventListener("input", () => {
+    const pw = $("rootPlain").value;
+    $("rootHash").value = pw ? Sha512Crypt.make(pw) : "";
+    update();
+  });
 
   // Best effort: ask GitHub's API (which allows browser requests) whether the users exist and have keys.
   let ghTimer;

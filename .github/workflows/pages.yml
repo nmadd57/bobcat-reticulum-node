@@ -35,6 +35,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends python3-yaml u-boot-tools dosfstools mtools
       - name: Test the generator against the installer
         run: node test/test-site-config.js
+      - name: Test in-browser password hashing
+        run: node test/test-sha512crypt.js
       - name: Test the USB flasher modules
         run: |
           for t in pure protocol fat e2e; do node test/test-flash-$t.mjs; done
