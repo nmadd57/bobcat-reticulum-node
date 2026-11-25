@@ -43,6 +43,7 @@ jobs:
       - name: Test the USB flasher modules
         run: |
           for t in pure protocol fat e2e; do node test/test-flash-$t.mjs; done
+          node test/test-maskrom.mjs
       - name: Build the fastboot boot partition for the USB flasher
         run: |
           tools/usb-flash/build-flashmode.sh --mode fastboot --out /tmp/flashmode

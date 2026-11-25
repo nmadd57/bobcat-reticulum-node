@@ -45,8 +45,8 @@ one); on Windows, the WinUSB driver for the two devices. How it works and its li
 
 > **Status:** every step is tested against an emulated board and the underlying protocol was verified by
 > hand on a real G295 and a G290, but the page itself has not yet flashed a unit end to end. A unit that
-> still runs the factory firmware starts in Maskrom (not download mode) and needs a loader sent first;
-> see [`docs/usb-flashing.md`](docs/usb-flashing.md).
+> still runs the factory firmware starts in Maskrom (not download mode); the page sends it a loader first
+> (checked on a G290; see [`docs/usb-flashing.md`](docs/usb-flashing.md)).
 
 ### Alternative: an SD card
 

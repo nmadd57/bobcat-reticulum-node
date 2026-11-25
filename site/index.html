@@ -192,7 +192,7 @@ details summary{cursor:pointer;font-weight:600}
   <h2>2. Put the board in download mode</h2>
   <ol style="margin:0 0 8px;padding-left:20px">
     <li>Remove the SD card. Connect the board's <strong>OTG</strong> USB port to this computer.</li>
-    <li>Hold <strong>Recovery</strong>, press and release <strong>Reset</strong>, then release Recovery after about two seconds.</li>
+    <li>Hold <strong>Recovery</strong>, press and release <strong>Reset</strong>, then release Recovery after about two seconds. A unit that still has the factory firmware stays in <em>Maskrom</em> (no product name): that is fine, the page sends it a loader first.</li>
     <li>Press <em>Connect</em> and choose <em>USB download gadget</em> (<code>2207:350a</code>).</li>
   </ol>
   <label class="check"><input type="checkbox" id="confirm"><span>I understand this erases the board's internal storage.</span></label>
@@ -370,6 +370,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
 import { RockUsb, ROCKUSB_FILTER } from "./flash/rockusb.mjs";
 import { Fastboot, FASTBOOT_FILTER } from "./flash/fastboot.mjs";
 import { phaseDownloadMode, phaseFastboot, readLayout } from "./flash/flasher.mjs";
+import { isMaskrom, bootRom, fetchLoader } from "./flash/maskrom.mjs";
 
 const $ = (id) => document.getElementById(id);
 let rock = null, fb = null, flashFat = null;
@@ -445,12 +446,27 @@ $("confirm").addEventListener("change", () => { $("connectRock").disabled = !$("
 function refreshFlash() { $("flash").disabled = !(fb && src); }
 async function pick(filters) { return navigator.usb.requestDevice({ filters }); }
 
+// After the boot ROM stage the board re-enumerates; find it again without asking when the browser remembers it.
+async function findLoaderDevice(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const list = (await navigator.usb.getDevices()).filter((d) => d.vendorId === 0x2207 && d.productId === 0x350a && !isMaskrom(d));
+    if (list.length) return list[0];
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return null;
+}
 $("connectRock").addEventListener("click", async () => {
   try {
-    const dev = await pick([ROCKUSB_FILTER]);
-    if (dev.deviceVersionMajor === 1 && !dev.productName) {   // bcdDevice 0100 and no product string: the chip's own Maskrom mode
-      status("s3status", "That is Maskrom (the chip's built-in mode), not U-Boot's download mode, and this page cannot flash from it. Power the board off, then hold Recovery and press Reset (or Recovery while applying power) so the board's own U-Boot answers as \"USB download gadget\".", "bad");
-      log("device is in Maskrom (bcdDevice 0100, no product name)"); return;
+    let dev = await pick([ROCKUSB_FILTER]);
+    if (isMaskrom(dev)) {   // a unit that has not run U-Boot's download mode: send the loader first
+      status("s3status", "The board is in Maskrom. Downloading the loader from Rockchip's public repository...");
+      log("device is in Maskrom (bcdDevice 0100, no product name): sending the loader");
+      const loader = await fetchLoader();
+      log("loader files verified (SHA-256)"); await bootRom(dev, loader, { log });
+      status("s3status", "The loader is running. Waiting for the board to come back...");
+      dev = await findLoaderDevice(8000);
+      if (!dev) { status("s3status", "The loader is running. Press Connect again and choose the device (it now has a product name).", "ok"); log("loader sent; waiting for the device to be chosen again"); return; }
     }
     rock = new RockUsb(dev); await rock.open();
     const info = await rock.flashInfo(); log(`connected: ${dev.productName || "download mode"}, ${info.sectors} sectors (${fmt(info.sectors * 512)})`);

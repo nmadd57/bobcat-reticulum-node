@@ -52,6 +52,7 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends dosfstools mtools
           for t in pure protocol fat e2e; do node test/test-flash-$t.mjs; done
+          node test/test-maskrom.mjs
       - name: In-browser password hashing against openssl
         run: node test/test-sha512crypt.js
       - name: Installer settings tests (dry run, config parsing, saved settings)
