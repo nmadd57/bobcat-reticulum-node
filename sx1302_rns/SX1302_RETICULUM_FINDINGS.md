@@ -1,7 +1,6 @@
 # SX1302 + Reticulum — Session Findings
 
 Date: 2026-10-30
-Repository: `/home/nick/development/sx1302_hal`
 Upstream: `git@github.com:Lora-net/sx1302_hal.git`, version `2.1.0`
 
 ## 1. Question

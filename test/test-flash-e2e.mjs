@@ -76,7 +76,7 @@ ok(t1.headerOk && t1.arrayOk, "phase 1: the table on the board has valid CRCs");
 ok(t1.entries[1].name === "rootfs" && t1.entries[1].last === DISK - 34 && t1.entries[0].last === ROOT_FIRST - 1, "phase 1: rootfs extended to the end of the disk, bootfs unchanged");
 ok(Buffer.compare(Buffer.from(disk.subarray(BOOT_FIRST * 512, BOOT_FIRST * 512 + flashFat.length)), Buffer.from(flashFat)) === 0, "phase 1: the temporary boot partition is where bootfs starts");
 
-const settings = "WIFI_SSID=Home\nHOSTNAME=bobcat01\nTIMEZONE=America/New_York\n";
+const settings = "WIFI_SSID=Home\nHOSTNAME=testnode\nTIMEZONE=America/New_York\n";
 const fb = new Fastboot(new Usb(fbHandler)); await fb.open();
 const prog = []; await phaseFastboot({ fb, openStream: openImage, settingsText: settings, log: (m) => logs.push(m), progress: (p) => prog.push(p) });
 const order = events.filter((e) => e.startsWith("flash") || e.startsWith("fastboot"));

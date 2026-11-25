@@ -335,7 +335,7 @@ full commented example is in `examples/reticulum-sx1302.conf`:
   [[SX1302 LoRa]]
     type = SX1302
     enabled = yes
-    board_profile = /home/pi/sx1302_hal/examples/rak2287-eu868.conf
+    board_profile = /opt/sx1302_hal/examples/rak2287-eu868.conf
 ```
 
 Start Reticulum and inspect the interface:

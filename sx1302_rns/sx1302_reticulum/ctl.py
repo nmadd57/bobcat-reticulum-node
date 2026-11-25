@@ -18,6 +18,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# The source checkout this file belongs to (used only when running from a checkout).
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 from .hal import find_library_path, Hal
 from .config import BoardProfile
 
@@ -43,9 +46,12 @@ def _default_config_dir() -> Path:
 
 def _install_hal_library() -> None:
     """Print instructions for installing the HAL library manually."""
-    so_path = Path("/home/nick/development/sx1302_hal/build/libloragw.so")
-    if not so_path.is_file():
-        print("  ! HAL library source not found: " + str(so_path))
+    # Where a built library might be: named explicitly, or in this source checkout's build directory.
+    candidates = [Path(os.environ["SX1302_HAL_LIB"])] if os.environ.get("SX1302_HAL_LIB") else []
+    candidates.append(_PROJECT_ROOT / "build" / "libloragw.so")
+    so_path = next((c for c in candidates if c.is_file()), None)
+    if so_path is None:
+        print("  ! HAL library not found; build it, or set SX1302_HAL_LIB to its path")
         return
     print("  To install the HAL library manually:")
     print(f"    sudo cp {so_path} /usr/local/lib/libloragw.so")
@@ -78,7 +84,7 @@ def _attempt_automatic_setup(config_dir: Path) -> None:
             shim_src = None
         if shim_src is None:
             # Fallback: project checkout path (common when developing with --editable)
-            project_root = Path("/home/nick/sx1302_rns")
+            project_root = _PROJECT_ROOT
             if (project_root / "interfaces" / "SX1302.py").is_file():
                 shim_src = project_root / "interfaces" / "SX1302.py"
         if shim_src is not None:
@@ -93,7 +99,7 @@ def _attempt_automatic_setup(config_dir: Path) -> None:
         print(f"  ! Failed to create shim: {e}")
 
     # 3) Try to ensure the board profile exists
-    profile_src = Path("/home/nick/sx1302_rns/examples/rak2287-eu868.conf")
+    profile_src = _PROJECT_ROOT / "examples" / "rak2287-eu868.conf"
     profile_dst = config_dir / "rak2287-eu868.conf"
     if profile_src.is_file():
         if not profile_dst.is_file():

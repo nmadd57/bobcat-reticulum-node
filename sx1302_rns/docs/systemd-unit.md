@@ -31,8 +31,8 @@ with your `[interfaces]` stanza. The unit runs as user `pi` by default.
   [[SX1302 LoRa]]
     type = SX1302
     enabled = yes
-    board_profile = /home/pi/sx1302_rns/examples/rak2287-eu868.conf
-    # library = /home/pi/sx1302_rns/build/libloragw.so
+    board_profile = /opt/sx1302_rns/examples/rak2287-eu868.conf
+    # library = /opt/sx1302_rns/build/libloragw.so
 ```
 
 Adjust paths and user in the unit file if needed.
@@ -62,10 +62,10 @@ Type=simple
 User=pi
 Group=pi
 SupplementaryGroups=spi gpio i2c
-WorkingDirectory=/home/pi/sx1302_rns
-ExecStartPre=/home/pi/sx1302_rns/scripts/reset_rak2287.sh start
-ExecStart=/home/pi/sx1302_rns/.venv/bin/rnsd --config /etc/reticulum/config
-ExecStopPost=/home/pi/sx1302_rns/scripts/reset_rak2287.sh stop
+WorkingDirectory=/opt/sx1302_rns
+ExecStartPre=/opt/sx1302_rns/scripts/reset_rak2287.sh start
+ExecStart=/opt/sx1302_rns/.venv/bin/rnsd --config /etc/reticulum/config
+ExecStopPost=/opt/sx1302_rns/scripts/reset_rak2287.sh stop
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -77,15 +77,15 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/pi/sx1302_rns /etc/reticulum /var/log/reticulum
+ReadWritePaths=/opt/sx1302_rns /etc/reticulum /var/log/reticulum
 DeviceAllow=/dev/spidev0.0 rw
 DeviceAllow=/dev/gpiochip* rw
 DeviceAllow=/dev/i2c-1 rw
 
 # Environment
-Environment=SX1302_HAL_LIB=/home/pi/sx1302_rns/build/libloragw.so
-Environment=PYTHONPATH=/home/pi/sx1302_rns
-Environment=PATH=/home/pi/sx1302_rns/.venv/bin:/usr/bin:/bin
+Environment=SX1302_HAL_LIB=/opt/sx1302_rns/build/libloragw.so
+Environment=PYTHONPATH=/opt/sx1302_rns
+Environment=PATH=/opt/sx1302_rns/.venv/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target

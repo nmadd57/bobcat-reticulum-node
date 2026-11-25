@@ -109,10 +109,10 @@ Re-run `./scripts/build_hal.sh` and verify the struct definitions in
 
 ```bash
 # Set the library path:
-export SX1302_HAL_LIB=/home/pi/sx1302_rns/build/libloragw.so
+export SX1302_HAL_LIB=/opt/sx1302_rns/build/libloragw.so
 
 # Or in the interface config:
-# library = /home/pi/sx1302_rns/build/libloragw.so
+# library = /opt/sx1302_rns/build/libloragw.so
 ```
 
 ### Multiple HAL versions
