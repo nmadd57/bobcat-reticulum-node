@@ -73,7 +73,7 @@ python3 -m pip install -e . pytest
 
 Then add a `type = SX1302` stanza under `[interfaces]` in your Reticulum
 configuration; see `examples/reticulum-sx1302.conf`. The stanza needs the path
-to a board profile such as `examples/rak2287-eu868.conf`. See `PLAN.md` and the
+to a board profile such as `examples/rak2287-eu868.conf`. See the
 [Pi guide](docs/raspberry-pi-testing.md) for the full sequence.
 
 ## Important limitations
