@@ -215,7 +215,7 @@ env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCA
     "$SCRIPT" >"$T/net.out" 2>&1 &
 NETPID=$!
 sleep 1.2
-RED_AT="$(val 130)$(val 130)"; [[ "$(val 130)" == 1 ]] && ok "no network: red is on after the grace period" || bad "no network: red is on after the grace period" "red=$(val 130)"
+[[ "$(val 130)" == 1 ]] && ok "no network: red is on after the grace period" || bad "no network: red is on after the grace period" "red=$(val 130)"
 sleep 0.2; check "no network: red stays steady (not blinking)" "$(val 130)$(val 130)" 11
 check "no network: blue is off while red" "$(val 128)" 0
 [[ -e "$T/state/firstboot.done" ]] && bad "no network: the install has not started yet" || ok "no network: the install waits for an address"
