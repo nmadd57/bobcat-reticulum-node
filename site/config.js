@@ -19,6 +19,7 @@
     reboot: (v) => !(/^\d+$/.test(v) && (+v === 0 || (+v >= 5 && +v <= 1440))) && "0 (never) or 5 to 1440 minutes",
     ifac: (v) => /["\\]/.test(v) && 'no " or \\ characters',
     sshKey: (v) => bad(/^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/=]+(\s.*)?$/, v) && "not a plain SSH public key line (options such as command= are not allowed)",
+    userName: (v) => (bad(/^[a-z_][a-z0-9_-]{0,31}$/, v) || v === "root") && "lowercase letters, digits, - and _, starting with a letter or _ (not root)",
     hash: (v) => bad(/^\$(6|5|y)\$[^\s:]+\$[^\s:]+$/, v) && "a crypt hash such as $6$salt$hash",
     timezone: (v) => bad(/^[A-Za-z0-9_+\-]+(\/[A-Za-z0-9_+\-]+)*$/, v) && "a timezone name like Europe/Berlin",
   };
@@ -26,7 +27,7 @@
   const SECTIONS = [
     ["Wi-Fi (this hardware: 2.4 GHz only)", ["WIFI_SSID", "WIFI_PASS", "WIFI_HIDDEN", "WIFI_OPEN"]],
     ["Ethernet", ["ETH_MODE", "ETH_ADDRESS", "ETH_GATEWAY", "ETH_DNS"]],
-    ["Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH", "SKIP_FIRSTLOGIN_WIZARD"]],
+    ["Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH", "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SUDO", "SKIP_FIRSTLOGIN_WIZARD"]],
     ["Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE", "TXPOWER"]],
     ["Reticulum", ["TRANSPORT", "INTERFACE_MODE", "IFAC_NETNAME", "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]],
     ["Self-recovery", ["RESILIENCE", "NETWATCH_REBOOT_MINUTES"]],
@@ -69,6 +70,16 @@
     if (!badKey) keys.forEach((k) => add("SSH_AUTHORIZED_KEY", k));
     if (t("github")) { const e = checks.github(t("github")); need("github", e, e); if (!e) list(t("github")).forEach((u) => add("SSH_GITHUB_USER", u)); }
     if (t("rootHash")) { const e = checks.hash(t("rootHash")); need("rootHash", e, e); if (!e) add("ROOT_PASSWORD_HASH", t("rootHash")); }
+    if (t("userName")) {
+      const e = checks.userName(t("userName")); need("userName", e, e);
+      const ukeys = lines(v.userKeys), ubad = ukeys.map(checks.sshKey).find(Boolean); need("userKeys", ubad, ubad);
+      const h = !t("userHash") ? (ukeys.length ? "" : "give a password or an SSH key, or this user cannot log in") : checks.hash(t("userHash")); need("userHash", h, h);
+      if (v.userSudo && !t("userHash")) need("userHash", true, "sudo asks for the user's password, so set one");
+      if (!e) add("USER_NAME", t("userName"));
+      if (t("userHash") && !h) add("USER_PASSWORD_HASH", t("userHash"));
+      if (!ubad) ukeys.forEach((k) => add("USER_SSH_KEY", k));
+      if (v.userSudo) add("USER_SUDO", "yes");
+    }
     if (v.skipWizard) add("SKIP_FIRSTLOGIN_WIZARD", "yes");
 
     // radio: only what differs from the defaults

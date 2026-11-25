@@ -143,6 +143,7 @@ SECTIONS = [
     ("Wi-Fi (this hardware: 2.4 GHz only)", ["WIFI_SSID", "WIFI_PASS", "WIFI_HIDDEN", "WIFI_OPEN"]),
     ("Ethernet", ["ETH_MODE", "ETH_ADDRESS", "ETH_GATEWAY", "ETH_DNS"]),
     ("Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH",
+                          "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SUDO",
                           "SKIP_FIRSTLOGIN_WIZARD"]),
     ("Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE",
                                             "TXPOWER", "PREAMBLE"]),
@@ -422,6 +423,23 @@ def interview(a, s):
             h = a.ask("  Paste a hash (from: mkpasswd -m sha-512), or Enter to skip")
             if h:
                 s.set("ROOT_PASSWORD_HASH", h)
+    if a.yes("Create a second user?"):
+        name = a.ask("  User name", check=lambda v: None if re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", v) and v != "root" else "lowercase letters, digits, - and _ (not root)", allow_empty=False)
+        s.set("USER_NAME", name)
+        if a.yes("  Give it a password?", default=True):
+            pw = a.secret("  Password (not shown)", lambda v: "cannot be empty" if not v else None)
+            h = hash_password(pw)
+            if not h:
+                h = a.ask("  openssl is not available; paste a hash (mkpasswd -m sha-512)")
+            if h:
+                s.set("USER_PASSWORD_HASH", h)
+                if a.yes("  Allow sudo?"):
+                    s.set("USER_SUDO", "yes")
+        while True:
+            k = a.ask("  SSH public key for this user (Enter when done)")
+            if not k:
+                break
+            s.set("USER_SSH_KEY", k)
     if a.yes("Skip the interactive first-login prompt (recommended for a headless node)?", default=True):
         s.set("SKIP_FIRSTLOGIN_WIZARD", "yes")
 

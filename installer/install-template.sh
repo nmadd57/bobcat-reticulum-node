@@ -62,6 +62,7 @@ OPT_NETWORK_ONLY=0 OPT_REVERT_SECS=180
 # Operating system
 OPT_HOSTNAME="" OPT_TIMEZONE="" OPT_SSH_KEYS="" OPT_SSH_KEYS_FILE="" OPT_GH_USERS=()
 OPT_ROOT_HASH="" OPT_SKIP_WIZARD=0
+OPT_USER_NAME="" OPT_USER_HASH="" OPT_USER_SUDO=0 OPT_USER_KEYS=""
 
 SERVICE_STARTED_AT=""
 CURRENT_CONFIG=""
@@ -189,6 +190,10 @@ apply_config_key() {
         SSH_AUTHORIZED_KEYS_FILE) OPT_SSH_KEYS_FILE="$(abs_path "$val" "$base")" ;;
         SSH_GITHUB_USER)      [[ -z "$val" ]] || OPT_GH_USERS+=("$val") ;;
         ROOT_PASSWORD_HASH)   OPT_ROOT_HASH="$val" ;;
+        USER_NAME)            OPT_USER_NAME="$val" ;;
+        USER_PASSWORD_HASH)   OPT_USER_HASH="$val" ;;
+        USER_SUDO)            OPT_USER_SUDO="$(to_bool "$val")" ;;
+        USER_SSH_KEY)         [[ -z "$val" ]] || OPT_USER_KEYS+="$val"$'\n' ;;
         SKIP_FIRSTLOGIN_WIZARD) OPT_SKIP_WIZARD="$(to_bool "$val")" ;;
         FREQUENCY)            OPT_FREQ="$val" ;;
         BANDWIDTH)            OPT_BW="$val" ;;
@@ -296,6 +301,10 @@ while [[ $# -gt 0 ]]; do
         --ssh-key-file)    need "$@"; OPT_SSH_KEYS_FILE="$2"; shift 2 ;;
         --ssh-github-user) need "$@"; OPT_GH_USERS+=("$2"); shift 2 ;;
         --root-password-hash) need "$@"; OPT_ROOT_HASH="$2"; shift 2 ;;
+        --user)            need "$@"; OPT_USER_NAME="$2"; shift 2 ;;
+        --user-password-hash) need "$@"; OPT_USER_HASH="$2"; shift 2 ;;
+        --user-sudo)       OPT_USER_SUDO=1; shift ;;
+        --user-ssh-key)    need "$@"; OPT_USER_KEYS+="$2"$'\n'; shift 2 ;;
         --skip-first-login-wizard) OPT_SKIP_WIZARD=1; shift ;;
         -h|--help)         usage; exit 0 ;;
         *)                 fail "unknown option: $1 (try --help)" ;;
@@ -420,6 +429,22 @@ validate_options() {
         fail "timezone '$OPT_TIMEZONE' is not valid (example: America/New_York)"
     [[ -z "$OPT_ROOT_HASH" || "$OPT_ROOT_HASH" =~ ^\$[0-9a-z]+\$[^[:space:]:]+$ ]] ||
         fail "the root password must be given as a crypt(3) hash, e.g. from: mkpasswd -m sha-512"
+    [[ -z "$OPT_USER_HASH" || "$OPT_USER_HASH" =~ ^\$[0-9a-z]+\$[^[:space:]:]+$ ]] ||
+        fail "the user's password must be given as a crypt(3) hash, e.g. from: mkpasswd -m sha-512"
+    if [[ -n "$OPT_USER_NAME" ]]; then
+        [[ "$OPT_USER_NAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] ||
+            fail "the user name must be lowercase letters, digits, - and _ (start with a letter or _, at most 32 characters)"
+        [[ "$OPT_USER_NAME" != root ]] || fail "USER_NAME is for a second user; root is already there (use ROOT_PASSWORD_HASH)"
+        [[ -n "$OPT_USER_HASH" || -n "$OPT_USER_KEYS" ]] ||
+            fail "USER_NAME needs USER_PASSWORD_HASH (a crypt(3) hash) or USER_SSH_KEY, or the user could not log in"
+        [[ "$OPT_USER_SUDO" -eq 0 || -n "$OPT_USER_HASH" ]] || fail "USER_SUDO needs USER_PASSWORD_HASH (sudo asks for the password)"
+    elif [[ -n "$OPT_USER_HASH$OPT_USER_KEYS" || "$OPT_USER_SUDO" -eq 1 ]]; then
+        fail "USER_PASSWORD_HASH, USER_SSH_KEY and USER_SUDO need USER_NAME"
+    fi
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        [[ "$line" =~ $SSH_KEY_RE ]] || fail "a USER_SSH_KEY is not a plain public key (options such as command= are not accepted)"
+    done <<< "$OPT_USER_KEYS"
     if [[ -n "$OPT_SSH_KEYS_FILE" ]]; then
         [[ -r "$OPT_SSH_KEYS_FILE" ]] || fail "cannot read SSH key file $OPT_SSH_KEYS_FILE"
         OPT_SSH_KEYS+="$(tr -d '\r' < "$OPT_SSH_KEYS_FILE")"$'\n'
@@ -735,7 +760,7 @@ EOF
 # ---------------------------------------------------------------------------
 
 wants_os_settings() {
-    [[ -n "$OPT_HOSTNAME$OPT_TIMEZONE$OPT_SSH_KEYS$OPT_ROOT_HASH" || "$OPT_SKIP_WIZARD" -eq 1 ||
+    [[ -n "$OPT_HOSTNAME$OPT_TIMEZONE$OPT_SSH_KEYS$OPT_ROOT_HASH$OPT_USER_NAME" || "$OPT_SKIP_WIZARD" -eq 1 ||
        ${#OPT_GH_USERS[@]} -gt 0 ]]
 }
 
@@ -847,6 +872,29 @@ setup_os() {
     if [[ -n "$OPT_ROOT_HASH" ]]; then
         printf 'root:%s\n' "$OPT_ROOT_HASH" | chpasswd -e
         note "root password set"
+    fi
+
+    if [[ -n "$OPT_USER_NAME" ]]; then
+        if id -u "$OPT_USER_NAME" >/dev/null 2>&1; then
+            note "user $OPT_USER_NAME already exists; updating its password"
+        else
+            useradd -m -s /bin/bash "$OPT_USER_NAME" && note "user $OPT_USER_NAME created"
+        fi
+        [[ -z "$OPT_USER_HASH" ]] || printf '%s:%s\n' "$OPT_USER_NAME" "$OPT_USER_HASH" | chpasswd -e
+        if [[ -n "$OPT_USER_KEYS" ]]; then
+            local uhome ukeys="" ukey
+            uhome="$(getent passwd "$OPT_USER_NAME" | cut -d: -f6)"
+            install -d -m 700 -o "$OPT_USER_NAME" -g "$OPT_USER_NAME" "$uhome/.ssh"
+            touch "$uhome/.ssh/authorized_keys"
+            while IFS= read -r ukey; do
+                [[ -n "$ukey" ]] && ! grep -qxF -- "$ukey" "$uhome/.ssh/authorized_keys" && printf '%s\n' "$ukey" >> "$uhome/.ssh/authorized_keys"
+            done <<< "$OPT_USER_KEYS"
+            chown "$OPT_USER_NAME:$OPT_USER_NAME" "$uhome/.ssh/authorized_keys"; chmod 600 "$uhome/.ssh/authorized_keys"
+            note "SSH keys installed for $OPT_USER_NAME"
+        fi
+        if [[ "$OPT_USER_SUDO" -eq 1 ]]; then
+            usermod -aG sudo "$OPT_USER_NAME" && note "$OPT_USER_NAME can use sudo"
+        fi
     fi
 
     if [[ "$OPT_SKIP_WIZARD" -eq 1 ]]; then
@@ -1310,6 +1358,11 @@ print_plan() {
         echo "github keys:   none"
     fi
     echo "root password: $([[ -n $OPT_ROOT_HASH ]] && echo 'will be set from the hash' || echo unchanged)"
+    if [[ -n "$OPT_USER_NAME" ]]; then
+        echo "extra user:    $OPT_USER_NAME ($([[ $OPT_USER_SUDO -eq 1 ]] && echo 'with sudo' || echo 'no sudo'), password $([[ -n $OPT_USER_HASH ]] && echo 'from the hash' || echo 'none'), ssh keys: $(grep -c . <<<"$OPT_USER_KEYS"))"
+    else
+        echo "extra user:    none"
+    fi
     echo "first-login wizard: $([[ $OPT_SKIP_WIZARD -eq 1 ]] && echo 'will be skipped' || echo untouched)"
     echo
     echo "-- self-recovery"

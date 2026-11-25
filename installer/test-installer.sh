@@ -153,7 +153,28 @@ has   "os: root password announced without the hash" "will be set from the hash"
 hasnt "os: hash never printed" 'abcdefghijklmnop' "$OUT"
 has   "os: wizard" "will be skipped" "$OUT"
 
+plan --user alice --user-password-hash '$6$salt$abcdefghijklmnop' --user-sudo
+has   "user: announced with sudo" "extra user:    alice (with sudo" "$OUT"
+hasnt "user: hash never printed" 'abcdefghijklmnop' "$OUT"
+plan --user bob --user-password-hash '$6$salt$abcdefghijklmnop'
+has   "user: without sudo by default" "extra user:    bob (no sudo" "$OUT"
+printf 'USER_NAME=carol\nUSER_PASSWORD_HASH=$6$s$h\nUSER_SUDO=yes\n' > "$T/user.conf"
+plan --config "$T/user.conf"
+has   "user: the settings file keys work" "extra user:    carol (with sudo" "$OUT"
+plan --user dave --user-ssh-key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest a@b' --user-ssh-key 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 c@d'
+has   "user: key-only user, two keys counted" "extra user:    dave (no sudo, password none, ssh keys: 2)" "$OUT"
+plan --hostname x
+has   "user: none by default" "extra user:    none" "$OUT"
+
 # ----------------------------------------------------------------- rejections
+plan_fail "reject: user without a password hash or key" "needs USER_PASSWORD_HASH" --user alice
+plan_fail "reject: user password as plain text" "crypt(3) hash" --user alice --user-password-hash hunter2
+plan_fail "reject: user named root" "second user" --user root --user-password-hash '$6$s$h'
+plan_fail "reject: bad user name" "user name must be" --user 'Bad Name' --user-password-hash '$6$s$h'
+plan_fail "reject: user password without a name" "need USER_NAME" --user-password-hash '$6$s$h'
+plan_fail "reject: a user key with options" "USER_SSH_KEY is not a plain public key" --user alice --user-ssh-key 'command="id" ssh-ed25519 AAAAC3Nza x'
+plan_fail "reject: sudo for a key-only user" "USER_SUDO needs" --user alice --user-ssh-key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest a@b' --user-sudo
+plan_fail "reject: sudo without a name" "need USER_NAME" --user-sudo
 plan_fail "reject: spreading factor" "spreadingfactor must be 7-12" --spreadingfactor 13
 plan_fail "reject: bandwidth 62.5 kHz" "bandwidth must be 125000" --bandwidth 62500
 plan_fail "reject: tx power above the table" "txpower must be 12-16" --txpower 27

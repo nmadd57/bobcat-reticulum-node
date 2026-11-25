@@ -157,6 +157,7 @@ def test_root_password_becomes_a_hash_the_installer_accepts(tmp_path):
         "",             # GitHub users
         "y",            # set a root password
         "s3cret-pw",    # the password (not a tty: read from stdin)
+        "n",            # second user
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
@@ -184,6 +185,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest me@laptop",   # pasted key
         "",                    # GitHub users
         "n",                   # root password
+        "n",                   # second user
         "y",                   # skip first-login prompt
         "y",                   # change radio
         "868000000", "250000", "10", "6", "13",
@@ -210,7 +212,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
 
 def test_questionnaire_reprompts_on_a_bad_answer(tmp_path):
     answers = "\n".join(["y", "Net", "n", "n", "short", "longenough1",   # passphrase: too short, then ok
-                         "keep", "", "", "", "", "n", "y", "n", "n", "n", "", "n", "", "y", ""]) + "\n"
+                         "keep", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "y", ""]) + "\n"
     r = run("-o", str(tmp_path / "c.conf"), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert "8 to 63 characters" in r.stdout
@@ -276,7 +278,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
         "",                           # pasted key
         "nosuchuser",                 # GitHub: does not exist -> asked again
         "alice",                      # GitHub: fine
-        "n", "y",                     # root password no, skip first-login yes
+        "n", "n", "y",                # root password no, second user no, skip first-login yes
         "n", "n", "n", "", "n", "",   # radio, transport, IFAC, mode, hub, server
         "y", "",                      # self-recovery on, default minutes
     ]) + "\n"
@@ -289,7 +291,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
 
 
 def test_questionnaire_can_turn_self_recovery_off(tmp_path):
-    answers = "\n".join(["n", "", "", "", "", "", "n", "y", "n", "n", "n", "", "n", "", "n"]) + "\n"
+    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n"]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
@@ -303,3 +305,29 @@ def test_self_recovery_settings_are_validated_by_the_installer(tmp_path):
     ok = run("--set", "NETWATCH_REBOOT_MINUTES=45", "--set", "LOG_KEEP_DAYS=7", "--set", "LOG_MAX_MB=200", "-o", "-", cwd=tmp_path)
     assert ok.returncode == 0, ok.stderr
     assert "NETWATCH_REBOOT_MINUTES=45" in ok.stdout
+
+
+def test_second_user_with_password_sudo_and_key(tmp_path):
+    key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl you@laptop"
+    answers = "\n".join([
+        "n",            # Wi-Fi
+        "",             # Ethernet: keep
+        "", "",         # hostname, timezone
+        key,            # pasted key (root)
+        "",             # GitHub users
+        "n",            # root password
+        "y",            # second user
+        "alice",        # name
+        "y", "pw-alice",   # a password for alice (read from stdin here)
+        "y",            # sudo
+        key, "",        # a key for alice, then done
+        "y",            # skip first-login prompt
+        "n", "n", "n",  # radio change, transport off, IFAC
+        "", "n", "",    # mode, TCP hub, server port
+        "y", "",        # self-recovery on, default reboot minutes
+    ]) + "\n"
+    out = tmp_path / "c.conf"
+    r = run("-o", str(out), stdin=answers, cwd=tmp_path)
+    text = out.read_text()
+    assert "USER_NAME=alice" in text and "USER_PASSWORD_HASH=$6$" in text and "USER_SUDO=yes" in text, r.stdout + r.stderr + text
+    assert text.count("USER_SSH_KEY=") == 1 and "pw-alice" not in text

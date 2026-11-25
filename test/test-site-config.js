@@ -21,6 +21,9 @@ const cases = {
   "static ethernet, no wifi": { wifi: false, ethMode: "static", ethAddress: "192.168.1.50/24", ethGateway: "192.168.1.1", ethDns: "192.168.1.1, 9.9.9.9" },
   "hidden wifi, transport off, ifac, tcp": { wifi: true, wifiSsid: "Hidden", wifiHidden: true, wifiPass: "12345678", transportOff: true,
     ifacName: "mynet", ifacPass: "a shared secret", mode: "gateway", tcpClients: "hub.example.org:4242\n192.168.1.20:4242", tcpPort: "4242" },
+  "second user with password and sudo": { wifi: false, userName: "alice", userHash: "$6$abcdefgh$0123456789abcdefghijklmnopqrstuvwxyzABCDEFGH", userSudo: true },
+  "second user with keys only": { wifi: false, userName: "bob", userKeys: KEY + "\n" },
+  "second user with both": { wifi: false, userName: "carol", userHash: "$6$abcdefgh$0123456789abcdefghijklmnopqrstuvwxyzABCDEFGH", userKeys: KEY, userSudo: true },
   "recovery off": { wifi: false, recovery: false },
   "recovery reboot 45": { wifi: false, recovery: true, reboot: "45" },
 };
@@ -32,6 +35,12 @@ for (const [name, v] of Object.entries(cases)) {
 }
 
 const rejects = {
+  "user without password or key": { userName: "alice" },
+  "user named root": { userName: "root", userHash: "$6$s$h" },
+  "user with a bad name": { userName: "Bad Name", userHash: "$6$s$h" },
+  "user with plain password": { userName: "alice", userHash: "hunter2" },
+  "sudo for a key-only user": { userName: "alice", userKeys: KEY, userSudo: true },
+  "user key with options": { userName: "alice", userKeys: "command=\"id\" " + KEY },
   "short wifi pass": { wifi: true, wifiSsid: "x", wifiPass: "short" },
   "bad hostname": { hostname: "-bad-" },
   "key with options": { sshKeys: 'command="id" ' + KEY },

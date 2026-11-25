@@ -104,6 +104,16 @@ details summary{cursor:pointer;font-weight:600}
     <p class="hint">Hashed here in your browser (SHA-512 crypt); only the hash goes into the file, never the password. Without it the image default (<code>1234</code>) stays, so prefer SSH keys.</p></div>
   <div class="row"><label for="rootHash">Root password hash</label><input type="text" id="rootHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="rootHash"></div>
     <p class="hint">Filled in from the password above. You can also paste a hash you made yourself (<code>mkpasswd -m sha-512</code> or <code>openssl passwd -6</code>).</p></div>
+  <div class="check"><input type="checkbox" id="userOn"><label for="userOn">Also create a second user</label></div>
+  <div id="userBox" class="sub" hidden>
+    <div class="row"><label for="userName">User name</label><input type="text" id="userName" placeholder="nick" spellcheck="false" autocapitalize="none"><div class="err" data-for="userName"></div></div>
+    <div class="row"><label for="userPlain">Password</label><input type="password" id="userPlain" autocomplete="new-password" spellcheck="false">
+      <div class="check" style="margin-top:6px"><input type="checkbox" id="showUser"><label for="showUser">Show password</label></div>
+      <p class="hint">Hashed here in your browser, like the root password. Only the hash goes into the file.</p></div>
+    <div class="row"><label for="userHash">Password hash</label><input type="text" id="userHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="userHash"></div></div>
+    <div class="row"><label for="userKeys">SSH public keys for this user (optional, one per line)</label><textarea id="userKeys" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><div class="err" data-for="userKeys"></div></div>
+    <div class="check"><input type="checkbox" id="userSudo"><label for="userSudo">Allow this user to use sudo (full administrator rights)</label></div>
+  </div>
   <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node)</label></div>
 </fieldset>
 
@@ -222,7 +232,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   "use strict";
   const $ = (id) => document.getElementById(id);
   const form = $("f");
-  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash",
+  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys",
     "bandwidth", "sf", "cr", "txpower", "ifacName", "ifacPass", "mode", "tcpClients", "tcpPort", "reboot"];
 
   // option lists
@@ -238,7 +248,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   function values() {
     const v = { wifi: $("wifi").checked, wifiHidden: $("wifiHidden").checked, wifiOpen: $("wifiOpen").checked,
       ethMode: $("ethMode").value, skipWizard: $("skipWizard").checked, transportOff: $("transportOff").checked,
-      recovery: $("recovery").checked };
+      recovery: $("recovery").checked, userSudo: $("userSudo").checked };
     FIELDS.forEach((k) => { v[k] = $(k).value; });
     const mhz = $("frequencyMhz").value.trim();
     v.frequency = /^\d+(\.\d+)?$/.test(mhz) ? String(Math.round(parseFloat(mhz) * 1e6)) : "x" + mhz;
@@ -248,10 +258,12 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   let last = { text: "", errors: [], empty: true };
   function update() {
     $("wifiBox").hidden = !$("wifi").checked;
+    $("userBox").hidden = !$("userOn").checked;
     $("passRow").hidden = $("wifiOpen").checked;
     $("ethBox").hidden = $("ethMode").value !== "static";
     $("rebootBox").hidden = !$("recovery").checked;
-    last = BobcatConfig.build(values());
+    const vals = values(); if (!$("userOn").checked) { vals.userName = ""; vals.userHash = ""; vals.userKeys = ""; vals.userSudo = false; }
+    last = BobcatConfig.build(vals);
     document.querySelectorAll(".err").forEach((e) => { e.textContent = ""; });
     document.querySelectorAll(".invalid").forEach((e) => e.classList.remove("invalid"));
     last.errors.forEach(({ field, message }) => {
@@ -280,6 +292,9 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
     $("rootHash").value = pw ? Sha512Crypt.make(pw) : "";
     update();
   });
+
+  $("showUser").addEventListener("change", () => { $("userPlain").type = $("showUser").checked ? "text" : "password"; });
+  $("userPlain").addEventListener("input", () => { const pw = $("userPlain").value; $("userHash").value = pw ? Sha512Crypt.make(pw) : ""; update(); });
 
   // Best effort: ask GitHub's API (which allows browser requests) whether the users exist and have keys.
   let ghTimer;
@@ -316,13 +331,13 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   });
 
   // Remember the form in a cookie (this browser only). Passwords stay out unless asked for.
-  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash"], NEVER_IDS = ["rootPlain"];   // the plaintext root password is never stored; its hash is enough
+  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash", "userHash"], NEVER_IDS = ["rootPlain", "userPlain"];   // the plaintext root password is never stored; its hash is enough
   const cookieGet = () => { const m = document.cookie.split("; ").find((c) => c.startsWith(COOKIE + "=")); try { return m ? JSON.parse(decodeURIComponent(m.slice(COOKIE.length + 1))) : null; } catch (e) { return null; } };
   function cookieStatus(text, cls) { const e = $("cookieStatus"); e.textContent = text; e.className = "status " + (cls || ""); }
   $("saveCookie").addEventListener("click", () => {
     const withSecrets = $("cookieSecrets").checked, data = { secrets: withSecrets, v: {} };
     form.querySelectorAll("input[id], select[id], textarea[id]").forEach((el) => {
-      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot") return;
+      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot" || el.id === "showUser") return;
       if (NEVER_IDS.includes(el.id) || (SECRET_IDS.includes(el.id) && !withSecrets)) return;
       data.v[el.id] = el.type === "checkbox" ? el.checked : el.value;
     });

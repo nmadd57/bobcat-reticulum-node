@@ -34,6 +34,11 @@
 #SSH_GITHUB_USER=your-github-name
 # A crypt(3) hash, e.g. from: mkpasswd -m sha-512
 #ROOT_PASSWORD_HASH=$6$salt$hash
+# A second user (optional). Needs a password hash or an SSH key; sudo needs the hash.
+#USER_NAME=nick
+#USER_PASSWORD_HASH=$6$salt$hash
+#USER_SSH_KEY=ssh-ed25519 AAAA... you@laptop
+#USER_SUDO=yes
 # Skip Armbian's interactive "create a user" first-login prompt.
 #SKIP_FIRSTLOGIN_WIZARD=yes
 
