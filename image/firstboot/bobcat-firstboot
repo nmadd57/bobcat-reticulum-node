@@ -193,8 +193,6 @@ if ! "$INSTALLER" --config "$EFFECTIVE"; then
 fi
 
 touch "$DONE"
-led complete
-echo "== $(date -Is) first-boot install complete"
 
 # Do not leave secrets sitting in plain text on the FAT partition (readable from
 # any computer). The root-only copy under $SEED keeps them for re-runs.
@@ -204,4 +202,10 @@ if [[ -n "$BOOT_CONF" && -w "$BOOT_CONF" ]] && ! grep -qE '^[[:space:]]*SCRUB_BO
         echo "cleared passphrases in $BOOT_CONF"
 fi
 [[ "$SKIP_SYSTEM" == "1" ]] || systemctl disable bobcat-firstboot.service >/dev/null 2>&1 || true
+
+# Everything above sits in the page cache. Green means "safe to power off", so reach the disk first: a reset
+# right after green would otherwise lose the config and the done marker and the install would start over.
+sync
+led complete
+echo "== $(date -Is) first-boot install complete"
 exit 0
