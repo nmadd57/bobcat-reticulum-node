@@ -3,9 +3,21 @@
 How to write a whole OS image to the board's eMMC from a host computer over the OTG USB port, with no SD card.
 Developed and tested on one G295 (RK3566/RK3568, 58 GiB Samsung eMMC, U-Boot from the community Armbian image).
 
-**Status: worked once, end to end, on one unit.** The steps below were run by hand; the build script
+**Status: worked on one unit** (flashed the eMMC image over USB, it booted and installed itself; settings seeding on top of
+that has not been run yet). The steps below were run by hand; the build script
 (`tools/usb-flash/build-flashmode.sh`) reproduces the pieces but the whole procedure is not yet automated or run on
 other units.
+
+## Which image to write
+
+Use **`bobcat-g295-emmc.img.xz`** (a release asset from v0.2.5): the Armbian OS the eMMC flasher installs, with this
+project's installer and first-boot service already in it. It uses the generic Armbian boot script, which picks the
+boot device and the root filesystem by itself, so it boots from the eMMC.
+
+Do **not** write the standalone SD image (`bobcat-g295-reticulum.img.xz`) to the eMMC. Its boot script is hard-wired
+to the SD card: it loads the kernel with `load mmc 1:1` (the SD slot) and sets `root=/dev/mmcblk0p2`, but on this board
+the eMMC is `mmcblk1`. Written to the eMMC it was verified byte for byte and still never booted (solid blue LED; the
+root filesystem was untouched, with no first boot). The same method with the eMMC image booted and ran the installer.
 
 ## Why the obvious way does not work
 

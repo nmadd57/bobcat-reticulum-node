@@ -68,7 +68,7 @@ jobs:
       - name: Build
         env:
           BUILD_REF: ${{ github.sha }}
-        run: image/build-flasher.sh
+        run: image/build-flasher.sh --emmc-out dist/bobcat-g295-emmc.img.xz
 
       - name: Verify (partition tables, FAT, mounts, settings writer)
         run: sudo image/verify-flasher.sh dist/bobcat-g295-flasher.img.xz
@@ -92,6 +92,8 @@ jobs:
           path: |
             dist/bobcat-g295-flasher.img.xz
             dist/bobcat-g295-flasher.img.xz.sha256
+            dist/bobcat-g295-emmc.img.xz
+            dist/bobcat-g295-emmc.img.xz.sha256
           compression-level: 0
           retention-days: ${{ github.event_name == 'push' && 1 || 14 }}
           if-no-files-found: error
@@ -162,8 +164,9 @@ jobs:
           ls -lh assets
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --notes "Bobcat G290/G295 Reticulum node. Use the flasher image (bobcat-g295-flasher.img.xz) for the eMMC, with your settings on its BOBCFG partition; see the README. Also: the standalone SD image, the stand-alone installer, and an example settings file. Verify downloads with the .sha256 files." \
+            --notes "Bobcat G290/G295 Reticulum node. Use the flasher image (bobcat-g295-flasher.img.xz) for a unit with its original software, with your settings on its BOBCFG partition; see the README. bobcat-g295-emmc.img.xz is the OS that flasher installs, as its own file: write it to the eMMC by other means (see docs/usb-flashing.md). The standalone SD image (bobcat-g295-reticulum.img.xz) boots ONLY from the SD card. Also: the stand-alone installer, and an example settings file. Verify downloads with the .sha256 files." \
             assets/bobcat-g295-flasher.img.xz assets/bobcat-g295-flasher.img.xz.sha256 \
+            assets/bobcat-g295-emmc.img.xz assets/bobcat-g295-emmc.img.xz.sha256 \
             assets/bobcat-g295-reticulum.img.xz assets/bobcat-g295-reticulum.img.xz.sha256 \
             assets/bobcat-g295-install.sh \
             image/firstboot/bobcat-install.conf.example

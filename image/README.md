@@ -75,6 +75,10 @@ If the slow blink shows: the OS is installed but the settings are not on it. Put
 move the eMMC) before its first boot, or run the installer by hand afterwards.
 
 ## Using the standalone SD image
+**This image boots only from the SD card.** Its boot script loads the kernel from the SD slot (`mmc 1:1`) and sets
+`root=/dev/mmcblk0p2`; it cannot start from the eMMC. To put the OS in the eMMC use the flasher, or write
+`bobcat-g295-emmc.img.xz` ([`docs/usb-flashing.md`](../docs/usb-flashing.md)).
+
 Write it like any SD image, then **unplug and replug the card** so your computer
 shows the new partitions (an old partition table can linger and show a partition,
 such as `BOBCFG` from the flasher, that no longer exists). Before the first boot put

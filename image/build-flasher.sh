@@ -22,6 +22,9 @@
 #                          bobcat-install.conf. The image then holds your
 #                          settings: for your own use only, never publish it.
 #   --out FILE             output (default dist/bobcat-g295-flasher.img.xz)
+#   --emmc-out FILE        also write the patched OS image the flasher carries as its own
+#                          compressed file (an image that boots from the eMMC, for writing it by
+#                          other means, for example over USB; see docs/usb-flashing.md)
 #   --cache DIR            download/work directory (default .cache)
 #   --no-compress          leave the raw image instead of compressing
 #   --skip-fat             do not format the BOBCFG partition (testing only)
@@ -48,6 +51,7 @@ XZ_LEVEL="${XZ_LEVEL:-3}"
 INSTALLER="$ROOT/dist/bobcat-g295-install.sh"
 PRELOAD=""
 OUT="$ROOT/dist/bobcat-g295-flasher.img.xz"
+EMMC_OUT=""
 CACHE="$ROOT/.cache"
 COMPRESS=1
 SKIP_FAT=0
@@ -57,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --installer)      [[ $# -ge 2 ]] || fail "$1 needs a value"; INSTALLER="$2"; shift 2 ;;
         --preload-config) [[ $# -ge 2 ]] || fail "$1 needs a value"; PRELOAD="$2"; shift 2 ;;
         --out)            [[ $# -ge 2 ]] || fail "$1 needs a value"; OUT="$2"; shift 2 ;;
+        --emmc-out)       [[ $# -ge 2 ]] || fail "$1 needs a value"; EMMC_OUT="$2"; shift 2 ;;
         --cache)          [[ $# -ge 2 ]] || fail "$1 needs a value"; CACHE="$2"; shift 2 ;;
         --no-compress)    COMPRESS=0; shift ;;
         --skip-fat)       SKIP_FAT=1; shift ;;
@@ -127,6 +132,15 @@ log "Adding the installer and first-boot service to it"
 patch_os_image "$PAYLOAD"
 verify_os_image "$PAYLOAD"
 PAYLOAD_SHA="$(sha256sum "$PAYLOAD" | cut -d' ' -f1)"
+
+if [[ -n "$EMMC_OUT" ]]; then
+    log "Writing the patched OS image as its own file (boots from the eMMC)"
+    mkdir -p "$(dirname "$EMMC_OUT")"
+    xz -T0 -"${XZ_LEVEL:-3}" -c "$PAYLOAD" > "$EMMC_OUT.part"
+    mv "$EMMC_OUT.part" "$EMMC_OUT"
+    (cd "$(dirname "$EMMC_OUT")" && sha256sum "$(basename "$EMMC_OUT")" > "$(basename "$EMMC_OUT").sha256")
+    note "$EMMC_OUT ($(du -h "$EMMC_OUT" | cut -f1)), uncompressed sha256 $PAYLOAD_SHA"
+fi
 
 log "Putting the patched OS image and the new init script into the flasher"
 CMDS="$WORK/flasher.cmds"
