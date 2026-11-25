@@ -26,8 +26,10 @@ for a in "$@"; do printf '%s\n' "$a" >> "$BOBCAT_TEST_ARGS"; done
 [[ "$1" == --config && -r "$2" ]] && cat "$2" > "$BOBCAT_TEST_CONF_COPY"
 if [[ -n "${BOBCAT_GPIO_DIR:-}" ]]; then
     : > "$BOBCAT_TEST_LED_DURING"
-    for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        cat "$BOBCAT_GPIO_DIR/gpio128/value" >> "$BOBCAT_TEST_LED_DURING"; sleep 0.05
+    : > "${BOBCAT_TEST_RED_DURING:-/dev/null}"
+    for _ in $(seq 1 "${BOBCAT_TEST_STUB_LOOPS:-12}"); do
+        cat "$BOBCAT_GPIO_DIR/gpio128/value" >> "$BOBCAT_TEST_LED_DURING"
+        cat "$BOBCAT_GPIO_DIR/gpio130/value" >> "${BOBCAT_TEST_RED_DURING:-/dev/null}"; sleep 0.05
     done
 fi
 exit "${STUB_RC:-0}"
@@ -207,30 +209,31 @@ reset_dirs
 run BOBCAT_GPIO_DIR="$T/no-such-gpio-dir"
 check "led: a missing GPIO interface does not break the install" "$RC" 0
 
-# 14. no network: red steady as soon as no address has appeared after the grace period, blue again when one does
+# 14. no network: red steady while there is no address (after the grace period) WITHOUT holding the install back,
+#     blue again once one appears, never a red left over after the install
 reset_dirs; mkgpio
-env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCAT_SEED="$T/seed" BOBCAT_BOOT_DIR="$T/boot" \
-    BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_TEST_ARGS="$T/args" BOBCAT_TEST_CONF_COPY="$T/conf" BOBCAT_GPIO_DIR="$T/gpio" \
-    BOBCAT_RETRY_WAIT=0 BOBCAT_NET_POLL=0.1 BOBCAT_NET_GRACE=5 BOBCAT_NET_WAIT=100 BOBCAT_NET_CHECK="[ -e $T/net-up ]" \
-    "$SCRIPT" >"$T/net.out" 2>&1 &
-NETPID=$!
-sleep 1.2
-[[ "$(val 130)" == 1 ]] && ok "no network: red is on after the grace period" || bad "no network: red is on after the grace period" "red=$(val 130)"
-sleep 0.2; check "no network: red stays steady (not blinking)" "$(val 130)$(val 130)" 11
-check "no network: blue is off while red" "$(val 128)" 0
-[[ -e "$T/state/firstboot.done" ]] && bad "no network: the install has not started yet" || ok "no network: the install waits for an address"
-touch "$T/net-up"; wait "$NETPID"
-check "network appears: the install then completes" "$(cat "$T/state/firstboot.done" >/dev/null 2>&1; echo $?)" 0
-check "network appears: ends green" "$(val 129)" 1
-has "no network: the log says so" "no network address" "$(cat "$T/net.out")"
+run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during" BOBCAT_TEST_RED_DURING="$T/red-during" BOBCAT_TEST_STUB_LOOPS=60 \
+    BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_POLL=0.05 BOBCAT_NET_GRACE=6 BOBCAT_NET_CHECK=false
+check "no network: the installer still runs and the script completes" "$RC" 0
+RED="$(tr -d '\n' < "$T/red-during")"; BLUE="$(tr -d '\n' < "$T/led-during")"
+[[ "$RED" == *1111* ]] && ok "no network: red goes steady during the install (saw ${RED:0:40}...)" || bad "no network: red goes steady during the install" "saw [$RED]"
+has "no network: the log says so" "no network address" "$OUT"
+check "no network: the install ends green, red off" "$(val 129)$(val 130)" 10
+[[ ! -e "$T/nonet" ]] && ok "no network: the flag is cleaned up" || bad "no network: the flag is cleaned up"
+# the network comes up part-way through: red, then blue blinking again
+reset_dirs; mkgpio; rm -f "$T/net-up"
+( sleep 0.6; touch "$T/net-up" ) &
+run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during" BOBCAT_TEST_RED_DURING="$T/red-during" BOBCAT_TEST_STUB_LOOPS=40 \
+    BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_POLL=0.05 BOBCAT_NET_GRACE=4 BOBCAT_NET_CHECK="[ -e $T/net-up ]"
+wait
+RED="$(tr -d '\n' < "$T/red-during")"; BLUE="$(tr -d '\n' < "$T/led-during")"
+[[ "$RED" == *1111* && "$BLUE" == *1* && "${RED: -6}" != *1111* ]] && ok "network appears: red first, then it stops and blue blinks again" || bad "network appears: red then blue" "red=[$RED] blue=[$BLUE]"
+has "network appears: the log says it is up" "network is up" "$OUT"
 # a network that is up straight away never shows red
 reset_dirs; mkgpio
-run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during" BOBCAT_NET_POLL=0.1 BOBCAT_NET_GRACE=3 BOBCAT_NET_CHECK=true
+run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during" BOBCAT_TEST_RED_DURING="$T/red-during" BOBCAT_TEST_STUB_LOOPS=20 \
+    BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_POLL=0.05 BOBCAT_NET_GRACE=3 BOBCAT_NET_CHECK=true
 hasnt "network up at once: no red message" "no network address" "$OUT"
-# never waits forever
-reset_dirs; mkgpio
-run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_NET_POLL=0.05 BOBCAT_NET_GRACE=2 BOBCAT_NET_WAIT=6 BOBCAT_NET_CHECK=false
-has "no network ever: gives up waiting and carries on" "still no network; continuing" "$OUT"
-
+[[ "$(tr -d '\n' < "$T/red-during")" != *1* ]] && ok "network up at once: red never lit" || bad "network up at once: red never lit"
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]

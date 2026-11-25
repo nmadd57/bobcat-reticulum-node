@@ -95,17 +95,31 @@ led_blink() {   # led_blink <blue> <green> <red> <seconds on> <seconds off>
     ( while :; do led_show "$1" "$2" "$3"; sleep "$4"; led_show 0 0 0; sleep "$5"; done ) >/dev/null 2>&1 &
     LED_PID=$!
 }
-led() {   # led busy|nonet|retry|complete
+# While installing: blue blinks fast, unless the network watcher (below) has flagged "no network", then red is steady.
+NET_FLAG="${BOBCAT_NET_FLAG:-/run/bobcat-firstboot.nonet}"
+led_busy() {
+    ( while :; do
+        if [[ -e "$NET_FLAG" ]]; then led_show 0 0 1; sleep 0.3
+        else led_show 1 0 0; sleep 0.15; led_show 0 0 0; sleep 0.15; fi
+      done ) >/dev/null 2>&1 &
+    LED_PID=$!
+}
+WATCH_PID=""
+net_watch_stop() {
+    if [[ -n "$WATCH_PID" ]]; then kill "$WATCH_PID" 2>/dev/null; wait "$WATCH_PID" 2>/dev/null; WATCH_PID=""; fi
+    rm -f "$NET_FLAG"
+    return 0
+}
+led() {   # led busy|retry|complete
     led_stop
     case "$1" in
-        busy)  led_blink 1 0 0 0.15 0.15 ;;
-        nonet) led_show 0 0 1 ;;
-        retry) led_blink 0 0 1 1 1 ;;
-        complete) led_show 0 1 0 ;;
+        busy)  led_busy ;;
+        retry) net_watch_stop; led_blink 0 0 1 1 1 ;;
+        complete) net_watch_stop; led_show 0 1 0 ;;
     esac
     return 0
 }
-trap 'led_stop; [[ -n "$HIDDEN_MP" ]] && { umount "$HIDDEN_MP" 2>/dev/null; rmdir "$HIDDEN_MP" 2>/dev/null; }' EXIT
+trap 'net_watch_stop; led_stop; [[ -n "$HIDDEN_MP" ]] && { umount "$HIDDEN_MP" 2>/dev/null; rmdir "$HIDDEN_MP" 2>/dev/null; }' EXIT
 
 BAKED="$SEED/install.conf"            # baked into the image at build time (optional)
 EFFECTIVE="$SEED/effective.conf"      # what the installer is given
@@ -119,29 +133,31 @@ echo "== $(date -Is) bobcat-firstboot starting"
 [[ -x "$INSTALLER" ]] || { echo "installer missing: $INSTALLER"; exit 1; }
 led busy
 
-# The install needs the internet, so say at once when there is no network: red as soon as no address has shown
-# up after a short grace period (cable, Wi-Fi or DHCP trouble), blue again when one does. Waits at most
-# NET_WAIT seconds, then carries on; the installer's own failure/retry handling takes over from there.
-NET_POLL="${BOBCAT_NET_POLL:-1}" NET_GRACE="${BOBCAT_NET_GRACE:-20}" NET_WAIT="${BOBCAT_NET_WAIT:-180}"
+# The install needs the internet, so say at once when there is none: while no IPv4 address has shown up after a short
+# grace period the LED is steady red, and it goes back to blue as soon as one does. This only watches. It never blocks
+# the install: the installer is what applies the Wi-Fi and Ethernet settings, so on a freshly flashed unit the network
+# does not exist until it has run.
+NET_POLL="${BOBCAT_NET_POLL:-1}" NET_GRACE="${BOBCAT_NET_GRACE:-20}"
 have_network() {
     if [[ -n "${BOBCAT_NET_CHECK:-}" ]]; then bash -c "$BOBCAT_NET_CHECK"
     else [[ -n "$(ip -4 -o addr show scope global 2>/dev/null)" ]]; fi
 }
-wait_for_network() {
-    local n=0 red=0
-    while ! have_network; do
-        n=$((n + 1))
-        if [[ "$n" -ge "$NET_GRACE" && "$red" -eq 0 ]]; then
-            echo "no network address after $NET_GRACE checks: showing red (check the cable or the Wi-Fi settings)"
-            led nonet; red=1
+net_watch() {
+    local n=0
+    while :; do
+        if have_network; then
+            n=0
+            [[ -e "$NET_FLAG" ]] && { rm -f "$NET_FLAG"; echo "network is up: $(ip -4 -o addr show scope global 2>/dev/null | head -1)"; }
+        else
+            n=$((n + 1))
+            if [[ "$n" -ge "$NET_GRACE" && ! -e "$NET_FLAG" ]]; then
+                : > "$NET_FLAG"; echo "no network address after $NET_GRACE checks: LED red until one appears (cable or Wi-Fi settings?)"
+            fi
         fi
-        [[ "$n" -ge "$NET_WAIT" ]] && { echo "still no network; continuing, the install will retry"; return 0; }
         sleep "$NET_POLL"
     done
-    if [[ "$red" -eq 1 ]]; then echo "network is up: $(ip -4 -o addr show scope global 2>/dev/null | head -1)"; led busy; fi
-    return 0
 }
-if [[ "$SKIP_SYSTEM" != "1" || -n "${BOBCAT_NET_CHECK:-}" ]]; then wait_for_network; fi
+if [[ "$SKIP_SYSTEM" != "1" || -n "${BOBCAT_NET_CHECK:-}" ]]; then net_watch & WATCH_PID=$!; fi
 
 # Never let an automatic upgrade replace the kernel or bootloader: the image
 # documentation warns that doing so breaks boot.
