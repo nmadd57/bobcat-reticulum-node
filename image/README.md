@@ -87,7 +87,7 @@ the same settings files on its small FAT boot partition, the 256 MB drive labell
 
 **LED during the first boot:** the board's RGB LED (three GPIO lines, the same ones the flasher uses; the
 kernel's `/sys/class/leds` entries do not drive it) shows **blue, blinking fast** while the node installs,
-**red, blinking slowly** when an attempt failed (it waits about two minutes, then retries), and **green, steady** once the
+**red, steady** when it has no network (no IPv4 address about 20 seconds after it starts; it turns blue again once an address appears, so check the cable or the Wi-Fi settings), **red, blinking slowly** when an attempt failed (it waits about two minutes, then retries), and **green, steady** once the
 install is complete. The eMMC flasher uses its own patterns (above).
 
 The image has no `BOBCFG` partition; that exists only on the flasher. The large

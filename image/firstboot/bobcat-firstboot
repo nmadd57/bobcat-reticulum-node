@@ -66,6 +66,7 @@ note_source() {   # note_source <path>: say so when it is not the FAT partition
 # 128 blue, 129 green, 130 red; high = on), the same lines the flasher uses. The kernel's
 # /sys/class/leds entries do not drive it. Best effort: a missing GPIO never matters.
 #   blue, fast blink   installing
+#   red, steady        no network: no IPv4 address after about 20 seconds (turns blue again once one appears)
 #   red, slow blink    the last attempt failed; it waits about two minutes, then retries
 #   green, steady      install complete
 # sysfs-exported lines stay driven after this script exits, so a steady colour lasts.
@@ -94,10 +95,11 @@ led_blink() {   # led_blink <blue> <green> <red> <seconds on> <seconds off>
     ( while :; do led_show "$1" "$2" "$3"; sleep "$4"; led_show 0 0 0; sleep "$5"; done ) >/dev/null 2>&1 &
     LED_PID=$!
 }
-led() {   # led busy|retry|complete
+led() {   # led busy|nonet|retry|complete
     led_stop
     case "$1" in
         busy)  led_blink 1 0 0 0.15 0.15 ;;
+        nonet) led_show 0 0 1 ;;
         retry) led_blink 0 0 1 1 1 ;;
         complete) led_show 0 1 0 ;;
     esac
@@ -116,6 +118,30 @@ echo "== $(date -Is) bobcat-firstboot starting"
 [[ -e "$DONE" ]] && { echo "already done"; exit 0; }
 [[ -x "$INSTALLER" ]] || { echo "installer missing: $INSTALLER"; exit 1; }
 led busy
+
+# The install needs the internet, so say at once when there is no network: red as soon as no address has shown
+# up after a short grace period (cable, Wi-Fi or DHCP trouble), blue again when one does. Waits at most
+# NET_WAIT seconds, then carries on; the installer's own failure/retry handling takes over from there.
+NET_POLL="${BOBCAT_NET_POLL:-1}" NET_GRACE="${BOBCAT_NET_GRACE:-20}" NET_WAIT="${BOBCAT_NET_WAIT:-180}"
+have_network() {
+    if [[ -n "${BOBCAT_NET_CHECK:-}" ]]; then bash -c "$BOBCAT_NET_CHECK"
+    else [[ -n "$(ip -4 -o addr show scope global 2>/dev/null)" ]]; fi
+}
+wait_for_network() {
+    local n=0 red=0
+    while ! have_network; do
+        n=$((n + 1))
+        if [[ "$n" -ge "$NET_GRACE" && "$red" -eq 0 ]]; then
+            echo "no network address after $NET_GRACE checks: showing red (check the cable or the Wi-Fi settings)"
+            led nonet; red=1
+        fi
+        [[ "$n" -ge "$NET_WAIT" ]] && { echo "still no network; continuing, the install will retry"; return 0; }
+        sleep "$NET_POLL"
+    done
+    if [[ "$red" -eq 1 ]]; then echo "network is up: $(ip -4 -o addr show scope global 2>/dev/null | head -1)"; led busy; fi
+    return 0
+}
+if [[ "$SKIP_SYSTEM" != "1" || -n "${BOBCAT_NET_CHECK:-}" ]]; then wait_for_network; fi
 
 # Never let an automatic upgrade replace the kernel or bootloader: the image
 # documentation warns that doing so breaks boot.

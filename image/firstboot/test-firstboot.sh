@@ -207,5 +207,30 @@ reset_dirs
 run BOBCAT_GPIO_DIR="$T/no-such-gpio-dir"
 check "led: a missing GPIO interface does not break the install" "$RC" 0
 
+# 14. no network: red steady as soon as no address has appeared after the grace period, blue again when one does
+reset_dirs; mkgpio
+env BOBCAT_INSTALLER="$T/stub" BOBCAT_STATE="$T/state" BOBCAT_LOG="$T/log" BOBCAT_SEED="$T/seed" BOBCAT_BOOT_DIR="$T/boot" \
+    BOBCAT_TEST_SKIP_SYSTEM=1 BOBCAT_TEST_ARGS="$T/args" BOBCAT_TEST_CONF_COPY="$T/conf" BOBCAT_GPIO_DIR="$T/gpio" \
+    BOBCAT_RETRY_WAIT=0 BOBCAT_NET_POLL=0.1 BOBCAT_NET_GRACE=5 BOBCAT_NET_WAIT=100 BOBCAT_NET_CHECK="[ -e $T/net-up ]" \
+    "$SCRIPT" >"$T/net.out" 2>&1 &
+NETPID=$!
+sleep 1.2
+RED_AT="$(val 130)$(val 130)"; [[ "$(val 130)" == 1 ]] && ok "no network: red is on after the grace period" || bad "no network: red is on after the grace period" "red=$(val 130)"
+sleep 0.2; check "no network: red stays steady (not blinking)" "$(val 130)$(val 130)" 11
+check "no network: blue is off while red" "$(val 128)" 0
+[[ -e "$T/state/firstboot.done" ]] && bad "no network: the install has not started yet" || ok "no network: the install waits for an address"
+touch "$T/net-up"; wait "$NETPID"
+check "network appears: the install then completes" "$(cat "$T/state/firstboot.done" >/dev/null 2>&1; echo $?)" 0
+check "network appears: ends green" "$(val 129)" 1
+has "no network: the log says so" "no network address" "$(cat "$T/net.out")"
+# a network that is up straight away never shows red
+reset_dirs; mkgpio
+run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during" BOBCAT_NET_POLL=0.1 BOBCAT_NET_GRACE=3 BOBCAT_NET_CHECK=true
+hasnt "network up at once: no red message" "no network address" "$OUT"
+# never waits forever
+reset_dirs; mkgpio
+run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_NET_POLL=0.05 BOBCAT_NET_GRACE=2 BOBCAT_NET_WAIT=6 BOBCAT_NET_CHECK=false
+has "no network ever: gives up waiting and carries on" "still no network; continuing" "$OUT"
+
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]

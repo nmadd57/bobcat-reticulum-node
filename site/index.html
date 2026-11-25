@@ -68,7 +68,7 @@ details summary{cursor:pointer;font-weight:600}
 <form id="f" autocomplete="off" novalidate>
 
 <fieldset><legend>Wi-Fi</legend>
-  <div class="check"><input type="checkbox" id="wifi" checked><label for="wifi">Join a Wi-Fi network (needed if there is no network cable)</label></div>
+  <div class="check"><input type="checkbox" id="wifi"><label for="wifi">Join a Wi-Fi network (optional; without it the unit needs a network cable)</label></div>
   <div id="wifiBox" class="sub">
     <div class="row"><label for="wifiSsid">Network name (SSID)</label><input type="text" id="wifiSsid"><div class="err" data-for="wifiSsid"></div>
       <p class="hint">2.4 GHz only: this board's Wi-Fi chip cannot see 5 GHz. The network must also reach the internet for the install.</p></div>
@@ -81,7 +81,7 @@ details summary{cursor:pointer;font-weight:600}
 
 <fieldset><legend>Ethernet</legend>
   <div class="row"><label for="ethMode">Mode</label>
-    <select id="ethMode"><option value="keep">Leave as is (DHCP)</option><option value="dhcp">DHCP, managed by netplan</option><option value="static">Static address</option></select></div>
+    <select id="ethMode"><option value="dhcp" selected>DHCP, managed by netplan (default)</option><option value="keep">Leave as is</option><option value="static">Static address</option></select></div>
   <div id="ethBox" class="sub" hidden>
     <div class="row"><label for="ethAddress">Address with prefix</label><input type="text" id="ethAddress" placeholder="192.168.1.50/24"><div class="err" data-for="ethAddress"></div></div>
     <div class="cols">
