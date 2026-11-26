@@ -235,5 +235,16 @@ run BOBCAT_GPIO_DIR="$T/gpio" BOBCAT_TEST_LED_DURING="$T/led-during" BOBCAT_TEST
     BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_POLL=0.05 BOBCAT_NET_GRACE=3 BOBCAT_NET_CHECK=true
 hasnt "network up at once: no red message" "no network address" "$OUT"
 [[ "$(tr -d '\n' < "$T/red-during")" != *1* ]] && ok "network up at once: red never lit" || bad "network up at once: red never lit"
+
+# 15. no network yet: do not wait for the clock before the installer (it brings the network up); with a network, do
+reset_dirs; mkgpio
+run BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_CHECK=false BOBCAT_NET_GRACE=1000
+has   "no network yet: skips the clock wait and says why" "no network yet: not waiting for the clock" "$OUT"
+hasnt "no network yet: does not sit in the clock wait" "waiting for time sync" "$OUT"
+check "no network yet: the installer still runs" "$RC" 0
+reset_dirs; mkgpio
+run BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_CHECK=true BOBCAT_NET_GRACE=1000
+has   "network present: waits for the clock as before" "waiting for time sync" "$OUT"
+
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]

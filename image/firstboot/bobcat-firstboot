@@ -216,14 +216,20 @@ seed_config() {
 
 seed_config
 
-# The board has no battery-backed clock. A stale clock makes TLS (apt, pip)
-# fail with "certificate is not yet valid", so wait for time sync first.
-echo "waiting for time sync (up to 3 min)"
-for _ in $(seq 1 90); do
-    [[ "$SKIP_SYSTEM" == "1" ]] && break
-    [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "yes" ]] && break
-    sleep 2
-done
+# The board has no battery-backed clock. A stale clock makes TLS (apt, pip) fail with "certificate is not yet valid",
+# so the clock has to be right before packages are fetched. With no network address yet there is nothing to sync
+# from, and waiting here would hold up the very step that brings the network up (the installer applies the Wi-Fi
+# and Ethernet settings), so go straight on: the installer waits for the clock itself once the network is up.
+if [[ "$SKIP_SYSTEM" != "1" || -n "${BOBCAT_NET_CHECK:-}" ]] && ! have_network; then
+    echo "no network yet: not waiting for the clock here; the installer brings the network up and then waits for it"
+else
+    echo "waiting for time sync (up to 3 min)"
+    for _ in $(seq 1 90); do
+        [[ "$SKIP_SYSTEM" == "1" ]] && break
+        [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "yes" ]] && break
+        sleep 2
+    done
+fi
 echo "clock: $(date -Is) synchronized=$(timedatectl show -p NTPSynchronized --value 2>/dev/null)"
 
 echo "running the installer with $EFFECTIVE"

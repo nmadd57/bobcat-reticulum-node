@@ -954,6 +954,21 @@ internet_needs() {
 # Fail early, before anything on the node is changed, when the install needs the
 # internet and there is none (for example a Wi-Fi network that only reaches the
 # local network).
+# The board has no battery-backed clock, so after boot it believes it is the image's build date until chrony has
+# synced. TLS (apt, pip, GitHub) fails on a stale clock, so wait for it once the network is up. Never fatal.
+wait_for_clock() {
+    local waited=0 max="${BOBCAT_CLOCK_WAIT:-120}"
+    have timedatectl || return 0
+    [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "yes" ]] && return 0
+    note "waiting for the clock to sync (up to ${max}s)"
+    while [[ "$waited" -lt "$max" ]]; do
+        [[ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" == "yes" ]] && { note "clock synced: $(date -Is)"; return 0; }
+        sleep 2; waited=$((waited + 2))
+    done
+    warn "the clock did not sync within ${max}s; continuing (downloads may fail until it does)"
+    return 0
+}
+
 precheck_internet() {
     local needs
     needs="$(internet_needs)"
@@ -1419,6 +1434,7 @@ main() {
         return 0
     fi
     log "Checking what this install needs"
+    wait_for_clock
     precheck_internet
     setup_os
     install_packages

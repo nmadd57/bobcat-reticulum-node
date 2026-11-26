@@ -230,6 +230,16 @@ call() {   # call <body> [installer args...]: runs <body> in a fresh shell with 
 }
 mkdir -p "$T/prefix/sx1302_rns/interfaces"
 
+
+# Clock wait: returns at once when synced, gives up (not fatal) when it never does
+mkdir -p "$T/bin"
+printf '#!/bin/sh\necho "${STUB_NTP:-yes}"\n' > "$T/bin/timedatectl"; chmod +x "$T/bin/timedatectl"
+out="$(PATH="$T/bin:$PATH" STUB_NTP=yes call 'wait_for_clock')"; rc=$?
+check "clock: already synced returns at once and quietly" "$rc:$out" "0:"
+out="$(PATH="$T/bin:$PATH" STUB_NTP=no BOBCAT_CLOCK_WAIT=2 call 'wait_for_clock')"; rc=$?
+has   "clock: an unsynced clock is waited for, then reported, not fatal" "did not sync within 2s" "$out"
+check "clock: giving up still returns success" "$rc" 0
+
 # Reticulum config: written, regenerated while untouched, kept once edited.
 out="$(call 'write_config' --frequency 915000000)"
 [[ -f "$T/rns/config" && -f "$T/rns/.bobcat-config.sha256" ]] && ok "rns config: written with a checksum stamp" || bad "rns config: written with a checksum stamp" "$out"
