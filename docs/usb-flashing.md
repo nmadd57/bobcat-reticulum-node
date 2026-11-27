@@ -104,7 +104,7 @@ run through Node's WebUSB implementation, took a board from Maskrom to the `USB-
 put back into Maskrom with `rkdeveloptool rd 3` from its download mode.
 Before overwriting a factory unit, save its first 32 MiB (`rkdeveloptool rl 0 33554432 backup.bin`).
 
-## The browser flasher (the USB flasher section of `site/index.html`)
+## The browser flasher
 
 The page does the two phases above from Chrome or Edge over WebUSB: download mode writes the image's partition
 table (with `rootfs` extended to the end of the disk) and a temporary 8 MiB boot partition holding a

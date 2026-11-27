@@ -20,6 +20,8 @@ the node itself and joins your network with nothing typed on the device.
 
 ### Web flasher (recommended): [bobcat.galaxyone.space](https://bobcat.galaxyone.space/)
 
+The documentation is also published as web pages at [bobcat.galaxyone.space/docs](https://bobcat.galaxyone.space/docs/).
+
 One page makes your settings file and writes the OS image to the unit over USB. No SD card, no tools
 to install. It runs in your browser (**Chrome or Edge**); your settings and the image never leave your
 computer.

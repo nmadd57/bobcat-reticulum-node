@@ -83,7 +83,7 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
   <img src="logo.svg" alt="Cat ears over a hammer and sickle in one circle">
   <h1>Bobcat 300 Reticulum Flasher<small>The People's RNode</small></h1>
 </header>
-<p class="lead">Turn a Bobcat Miner 300 (G290 or G295) into a Reticulum LoRa node from your browser, over USB. Choose the system image, set up the node, and flash it. Everything happens on your computer; nothing you type is uploaded. Needs Chrome or Edge.</p>
+<p class="lead">Turn a Bobcat Miner 300 (G290 or G295) into a Reticulum LoRa node from your browser, over USB. Choose the system image, set up the node, and flash it. Everything happens on your computer; nothing you type is uploaded. Needs Chrome or Edge. <a href="docs/">Documentation</a>.</p>
 <div id="unsupported" class="note" hidden></div>
 <div class="note"><strong>This erases the unit's internal storage.</strong></div>
 
@@ -101,7 +101,7 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
 <!-- 2 -->
 <section class="step" id="s2">
   <h2><span class="n">2</span>Set up the node <span class="status" style="font-weight:400;margin:0">(optional)</span></h2>
-  <p>Everything here is optional. With nothing set, the unit installs with defaults over a network cable.</p>
+  <p>Everything here is optional. With nothing set, the unit installs with defaults over a network cable. Every setting is described in the <a href="docs/config-reference.html">settings reference</a>.</p>
   <div id="status" class="status"></div>
 
 <form id="f" autocomplete="off" novalidate>
@@ -207,9 +207,10 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
     <li>Connect the micro-USB port labelled <strong>COM</strong> (next to the LoRa connector) to this computer.</li>
     <li>Hold <strong>Recovery</strong> and quickly press and release <strong>Reset</strong>, then let go of Recovery after about two seconds. With the cover on, press the buttons through the slots in the right-hand side of the case.</li>
   </ol>
-  <p><a href="https://github.com/nmadd57/bobcat-reticulum-node/blob/main/docs/recovery-mode.md#putting-a-bobcat-300-into-recovery-mode">Photos, button positions and troubleshooting</a></p>
+  <p><a href="docs/recovery-mode.html#putting-a-bobcat-300-into-recovery-mode">Photos, button positions and troubleshooting</a></p>
   <p class="hint">A unit that still has the factory firmware shows up without a name (Maskrom). That is fine: the page sends it a loader first. A unit that has run this system before shows as "USB download gadget".</p>
   <details class="more"><summary>Browser and driver requirements</summary>
+    <p class="hint" style="margin-top:8px">More in <a href="docs/recovery-mode.html#how-to-tell-it-worked">how to tell it worked</a>.</p>
     <ul>
       <li><strong>Chrome, Edge or another Chromium browser</strong> (WebUSB). Firefox and Safari do not support it.</li>
       <li><strong>Linux:</strong> the browser needs permission to open the device, for example with a udev rule in <code>/etc/udev/rules.d/99-bobcat.rules</code>:
@@ -233,7 +234,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
 <!-- 5 -->
 <section class="step" id="s4">
   <h2><span class="n">5</span>Flash</h2>
-  <p class="hint" style="margin-top:-4px">The board restarts into fastboot (<code>18d1:4d00</code>). Press Connect and choose it. A board that is already in fastboot can be connected here directly. The flash takes a few minutes; keep the cable in and this tab open.</p>
+  <p class="hint" style="margin-top:-4px">The board restarts into fastboot (<code>18d1:4d00</code>). Press Connect and choose it. A board that is already in fastboot can be connected here directly. The flash takes a few minutes; keep the cable in and this tab open. <a href="docs/usb-flashing.html">How the flashing works</a>.</p>
   <div class="btns"><button id="connectFb" class="primary" type="button">Connect</button><button id="flash" type="button" disabled>Flash</button></div>
   <div class="status" id="phase"></div><progress id="p2" max="1" value="0" hidden></progress><div class="status" id="s4status"></div>
 </section>
@@ -242,7 +243,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   <pre class="log" id="log" aria-live="polite">Nothing yet.</pre>
 </details>
 
-<footer>Unofficial: not made by, affiliated with or endorsed by Bobcat, Bobber or Helium. <a href="https://github.com/nmadd57/bobcat-reticulum-node">Source and documentation</a>. The same settings file can be made with <code>tools/make-config.py</code>.</footer>
+<footer>Unofficial: not made by, affiliated with or endorsed by Bobcat, Bobber or Helium. <a href="docs/">Documentation</a> · <a href="https://github.com/nmadd57/bobcat-reticulum-node">Source</a>. The same settings file can be made with <code>tools/make-config.py</code>.</footer>
 </div>
 
 <script src="config.js"></script>

@@ -6,7 +6,7 @@ name: Config generator (GitHub Pages)
 on:
   push:
     branches: [main]
-    paths: ["site/**", "tools/usb-flash/**", ".github/workflows/pages.yml"]
+    paths: ["site/**", "docs/**", "tools/usb-flash/**", "tools/build-docs.py", ".github/workflows/pages.yml"]
   workflow_run:
     workflows: ["Build images"]
     types: [completed]
@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies for the installer's validator
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends python3-yaml u-boot-tools dosfstools mtools
+          sudo apt-get install -y --no-install-recommends python3-yaml python3-markdown u-boot-tools dosfstools mtools
       - name: Test the generator against the installer
         run: node test/test-site-config.js
       - name: Test in-browser password hashing
@@ -44,6 +44,8 @@ jobs:
         run: |
           for t in pure protocol fat e2e; do node test/test-flash-$t.mjs; done
           node test/test-maskrom.mjs
+      - name: Render the documentation as pages under /docs/
+        run: python3 tools/build-docs.py --out site/docs
       - name: Build the fastboot boot partition for the USB flasher
         run: |
           tools/usb-flash/build-flashmode.sh --mode fastboot --out /tmp/flashmode
