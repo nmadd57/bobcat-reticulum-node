@@ -1,5 +1,7 @@
 # Flashing a G290/G295 over USB
 
+How to get the unit into recovery mode (with photos): [`recovery-mode.md`](recovery-mode.md).
+
 How to write a whole OS image to the board's eMMC from a host computer over the OTG USB port, with no SD card.
 Developed and tested on one G295 (RK3566/RK3568, 58 GiB Samsung eMMC, U-Boot from the community Armbian image).
 

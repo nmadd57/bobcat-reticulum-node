@@ -30,8 +30,10 @@ computer.
    You can save the form in a cookie (passwords only if you tick the box).
 2. Under **Flash over USB**, pick the image: the latest release of this project (the default), a file you
    already have, or a URL.
-3. Connect the board's **OTG** USB port to your computer. Hold **Recovery**, press and release **Reset**,
-   then let go of Recovery after about two seconds. Press *Connect* and choose *USB download gadget*.
+3. Put the unit in recovery mode: power it, connect the micro-USB **OTG** port to your computer, hold **Recovery** and
+   quickly press and release **Reset**, then let go of Recovery after about two seconds (the buttons can be reached
+   through the slots in the case; photos and details: [`docs/recovery-mode.md`](docs/recovery-mode.md)). Press *Connect*
+   and choose *USB download gadget* (a factory unit shows up without a name; that works too).
 4. The page writes the image's bootloader, the partition table and a small boot area, then restarts the board into fastboot. Press *Connect* again, choose the
    fastboot device, and press *Flash*. It writes the system, adds your settings file, and reboots.
 
@@ -113,7 +115,7 @@ cannot join networks that require it; and Wi-Fi on this board is 2.4 GHz only.
 | `test/` | tests for the web page (generator, hashing, flasher modules) |
 | `bobcat-g295/` | board profile, reset script, announce test, netplan examples |
 | `sx1302_rns/` | the Reticulum SX1302 interface (a modified copy of an MIT project) plus the vendored Semtech HAL |
-| `docs/` | `config-reference.md` (all settings), `usb-flashing.md`, `hardware-notes.md`, `self-recovery.md`, `maskrom-recovery.md`, `development-notes.md` |
+| `docs/` | `config-reference.md` (all settings), `recovery-mode.md`, `usb-flashing.md`, `hardware-notes.md`, `self-recovery.md`, `maskrom-recovery.md`, `development-notes.md` |
 | `.github/workflows/` | CI and the image build |
 
 ## Building (CI)

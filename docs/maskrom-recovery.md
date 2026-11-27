@@ -1,5 +1,7 @@
 # Recovering a G295 that boots nothing
 
+How to get the unit into recovery mode (with photos): [`recovery-mode.md`](recovery-mode.md).
+
 The Recovery button (next section) gives a quick, reliable way to **read and rewrite the first 32 MiB** of the eMMC:
 the partition table and the bootloader. It **cannot flash a whole OS image**: on the unit tested, reads and writes
 beyond sector 65,535 do not work. The Maskrom method further down is the fallback when the bootloader itself is
