@@ -51,6 +51,11 @@ OPT_TRANSPORT=1 OPT_AUTOIF=1 OPT_RNODE_FRAMING=1 OPT_IFMODE=""
 OPT_IFAC_NET="" OPT_IFAC_PASS="" OPT_IFAC_PASS_FILE=""
 OPT_RESILIENCE=1 OPT_NW_TARGET="" OPT_NW_REBOOT=20 OPT_LOG_DAYS=14 OPT_LOG_MB=100
 OPT_TCP_PORT="" OPT_TCP_CLIENTS=() OPT_RNS_CONFIG=""
+OPT_WEBUI=0 OPT_WEBUI_HASH="" OPT_WEBUI_PORT=8443
+# The web interface comes from this release of github.com/nmadd57/rnsd-webui (override for tests or a mirror).
+WEBUI_REF="v0.1.1"
+WEBUI_SPEC="${BOBCAT_WEBUI_SPEC:-https://github.com/nmadd57/rnsd-webui/archive/refs/tags/$WEBUI_REF.tar.gz}"
+WEBUI_DIR="${BOBCAT_WEBUI_DIR:-/var/lib/rnsd-webui}"
 # Behaviour
 OPT_FORCE_CONFIG=0 OPT_START=1 OPT_HOLD=1 OPT_FORCE_BOARD=0 OPT_EXTRACT_ONLY=""
 OPT_DRY_RUN=0 OPT_CONFIG=""
@@ -101,6 +106,9 @@ Reticulum:
   --ifac-passphrase-file F   IFAC passphrase, first line of F
   --tcp-server-port N   also listen for Reticulum TCP links on port N (opens a port)
   --tcp-client HOST:PORT  also connect to a Reticulum TCP server (repeatable)
+  --webui               also install the rnsd web interface (HTTPS, self-signed certificate)
+  --webui-password-hash H  its login password as a hash (pbkdf2-sha256$... or scrypt$...)
+  --webui-port N        its HTTPS port (default 8443)
   --reticulum-config F  use F as /etc/reticulum/config instead of generating one
   --force-config        overwrite /etc/reticulum/config even if it was edited by hand
 
@@ -209,6 +217,9 @@ apply_config_key() {
         IFAC_NETNAME)         OPT_IFAC_NET="$val" ;;
         IFAC_PASSPHRASE)      OPT_IFAC_PASS="$val" ;;
         TCP_SERVER_PORT)      OPT_TCP_PORT="$val" ;;
+        WEBUI)                OPT_WEBUI="$(to_bool "$val")" ;;
+        WEBUI_PASSWORD_HASH)  OPT_WEBUI_HASH="$val" ;;
+        WEBUI_PORT)           OPT_WEBUI_PORT="$val" ;;
         TCP_CLIENT)           [[ -z "$val" ]] || OPT_TCP_CLIENTS+=("$val") ;;
         RETICULUM_CONFIG_FILE) OPT_RNS_CONFIG="$(abs_path "$val" "$base")" ;;
         RESILIENCE)           OPT_RESILIENCE="$(to_bool "$val")" ;;
@@ -272,6 +283,9 @@ while [[ $# -gt 0 ]]; do
         --ifac-netname)    need "$@"; OPT_IFAC_NET="$2"; shift 2 ;;
         --ifac-passphrase-file) need "$@"; OPT_IFAC_PASS_FILE="$2"; shift 2 ;;
         --tcp-server-port) need "$@"; OPT_TCP_PORT="$2"; shift 2 ;;
+        --webui)           OPT_WEBUI=1; shift ;;
+        --webui-password-hash) need "$@"; OPT_WEBUI_HASH="$2"; shift 2 ;;
+        --webui-port)      need "$@"; OPT_WEBUI_PORT="$2"; shift 2 ;;
         --tcp-client)      need "$@"; OPT_TCP_CLIENTS+=("$2"); shift 2 ;;
         --reticulum-config) need "$@"; OPT_RNS_CONFIG="$2"; shift 2 ;;
         --force-config)    OPT_FORCE_CONFIG=1; shift ;;
@@ -361,6 +375,17 @@ validate_options() {
         [[ "$OPT_TCP_PORT" =~ ^[0-9]+$ ]] && ((OPT_TCP_PORT >= 1 && OPT_TCP_PORT <= 65535)) ||
             fail "TCP server port must be 1-65535"
     fi
+    if [[ "$OPT_WEBUI" -eq 1 ]]; then
+        [[ -n "$OPT_WEBUI_HASH" ]] ||
+            fail "WEBUI needs WEBUI_PASSWORD_HASH (the web page makes one for you), or nobody could sign in"
+        [[ "$OPT_WEBUI_PORT" =~ ^[0-9]+$ ]] && ((OPT_WEBUI_PORT >= 1 && OPT_WEBUI_PORT <= 65535)) ||
+            fail "WEBUI_PORT must be 1-65535"
+        [[ "$OPT_WEBUI_PORT" != "$OPT_TCP_PORT" ]] || fail "WEBUI_PORT and TCP_SERVER_PORT must differ"
+    elif [[ -n "$OPT_WEBUI_HASH" ]]; then
+        fail "WEBUI_PASSWORD_HASH needs WEBUI=yes"
+    fi
+    [[ -z "$OPT_WEBUI_HASH" || "$OPT_WEBUI_HASH" =~ ^(pbkdf2-sha256\$[0-9]{1,7}\$[0-9a-f]{2,}\$[0-9a-f]{2,}|scrypt\$[0-9]+\$[0-9]+\$[0-9]+\$[0-9a-f]+\$[0-9a-f]+)$ ]] ||
+        fail "WEBUI_PASSWORD_HASH must be a pbkdf2-sha256\$... or scrypt\$... hash (the web page makes one), not a password"
     for value in "${OPT_TCP_CLIENTS[@]+"${OPT_TCP_CLIENTS[@]}"}"; do
         [[ "$value" =~ ^[A-Za-z0-9._-]+:[0-9]{1,5}$ ]] || fail "TCP client '$value' must look like host:port"
         ((${value##*:} >= 1 && ${value##*:} <= 65535)) || fail "TCP client '$value': port out of range"
@@ -929,6 +954,7 @@ missing_packages() {
     have gpioset || echo gpiod
     python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || echo python3-venv
     python3 -m pip --version >/dev/null 2>&1 || echo python3-pip
+    if [[ "$OPT_WEBUI" -eq 1 ]]; then have openssl || echo openssl; fi
 }
 
 # Is Reticulum installed in the venv, and is this code directory registered as the
@@ -1317,6 +1343,79 @@ verify() {
 # Keep a copy of the settings on the installed system
 # ---------------------------------------------------------------------------
 
+# The rnsd web interface (github.com/nmadd57/rnsd-webui): installed into the same venv, served over HTTPS with a
+# certificate made here (self-signed: the browser warns once), signed in with the password hash from the settings.
+render_webui_unit() {
+    cat <<EOF
+[Unit]
+Description=Web interface for rnsd (rnsd-webui)
+Documentation=https://github.com/nmadd57/rnsd-webui
+After=network-online.target $SERVICE.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$PREFIX/venv/bin/rnsd-webui --listen 0.0.0.0:$OPT_WEBUI_PORT --rns-config $CONFIGDIR --data-dir $WEBUI_DIR --tls-cert $WEBUI_DIR/tls/cert.pem --tls-key $WEBUI_DIR/tls/key.pem
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=$CONFIGDIR $WEBUI_DIR
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+SyslogIdentifier=rnsd-webui
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+install_webui() {
+    [[ "$OPT_WEBUI" -eq 1 ]] || return 0
+    log "Web interface"
+    "$PREFIX/venv/bin/pip" install --quiet "$WEBUI_SPEC" || fail "could not install rnsd-webui from $WEBUI_SPEC"
+    install -d -m 700 "$WEBUI_DIR" "$WEBUI_DIR/tls"
+
+    if [[ ! -s "$WEBUI_DIR/tls/cert.pem" || ! -s "$WEBUI_DIR/tls/key.pem" ]]; then
+        local host; host="$(hostname)"
+        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$host" -addext "subjectAltName=DNS:$host,DNS:$host.local" \
+            -keyout "$WEBUI_DIR/tls/key.pem" -out "$WEBUI_DIR/tls/cert.pem" >/dev/null 2>&1 || fail "could not make the web interface's certificate"
+        chmod 600 "$WEBUI_DIR/tls/key.pem"
+        note "certificate made for $host (self-signed, valid 10 years)"
+    fi
+
+    printf '%s\n' "$OPT_WEBUI_HASH" | "$PREFIX/venv/bin/rnsd-webui" set-hash --data-dir "$WEBUI_DIR" >/dev/null ||
+        fail "could not store the web interface password"
+    render_webui_unit > /etc/systemd/system/rnsd-webui.service
+    systemctl daemon-reload
+    if [[ "$OPT_START" -eq 1 ]]; then
+        systemctl enable rnsd-webui >/dev/null 2>&1
+        systemctl restart rnsd-webui
+        local i up=0
+        for i in $(seq 1 20); do
+            if "$PREFIX/venv/bin/python" - "$OPT_WEBUI_PORT" >/dev/null 2>&1 <<'PY'
+import ssl, sys, urllib.request
+ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+urllib.request.urlopen(f"https://127.0.0.1:{sys.argv[1]}/api/session", context=ctx, timeout=3).read()
+PY
+            then up=1; break; fi
+            sleep 1
+        done
+        if [[ "$up" -eq 1 ]]; then
+            note "web interface: https://$(hostname):$OPT_WEBUI_PORT/ (self-signed certificate: the browser warns once)"
+        else
+            warn "the web interface did not answer (see: journalctl -u rnsd-webui -n 30)"
+        fi
+    else
+        note "installed, not started (--no-start)"
+    fi
+}
+
 persist_config() {
     [[ -n "$OPT_CONFIG" ]] || return 0
     local src="$OPT_CONFIG" dst="$STATEDIR/install.conf" key path name
@@ -1369,6 +1468,7 @@ print_plan() {
     echo "interface mode: ${OPT_IFMODE:-default}"
     echo "IFAC:          ${OPT_IFAC_NET:+network name set }$([[ -n $OPT_IFAC_PASS ]] && echo 'passphrase set')$([[ -z $OPT_IFAC_NET$OPT_IFAC_PASS ]] && echo none)"
     echo "tcp server:    ${OPT_TCP_PORT:-none}"
+    echo "web interface: $([[ $OPT_WEBUI -eq 1 ]] && echo "yes (rnsd-webui $WEBUI_REF, https on port $OPT_WEBUI_PORT, password from the hash)" || echo no)"
     for client in "${OPT_TCP_CLIENTS[@]+"${OPT_TCP_CLIENTS[@]}"}"; do echo "tcp client:    $client"; done
     echo "own config:    ${OPT_RNS_CONFIG:-none (one is generated)}"
     echo
@@ -1441,6 +1541,7 @@ main() {
     install_code
     write_config
     install_service
+    install_webui
     setup_resilience
     persist_config
     local ok=0

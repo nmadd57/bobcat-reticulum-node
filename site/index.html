@@ -178,6 +178,20 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
   <div class="row"><label for="tcpPort">Accept TCP connections on port</label><input type="text" id="tcpPort" inputmode="numeric" placeholder="none"><div class="err" data-for="tcpPort"></div><p class="hint">Opens that port on the node.</p></div>
 </div></details>
 
+<details class="group"><summary>Web interface <small>optional, for rnsd</small></summary><div class="body">
+  <div class="check"><input type="checkbox" id="webuiOn"><label for="webuiOn">Install the rnsd web interface on the node</label></div>
+  <p class="hint" style="margin-top:-4px">See the node's interfaces and traffic, its paths, and announces as they arrive, from a browser on your network. It is served over HTTPS with a certificate the node makes itself, so your browser warns once. More in the <a href="docs/web-interface.html">documentation</a>.</p>
+  <div id="webuiBox" class="sub" hidden>
+    <div class="row"><label for="webuiPlain">Web interface password</label><input type="password" id="webuiPlain" autocomplete="new-password" spellcheck="false">
+      <div class="check" style="margin:8px 0 0"><input type="checkbox" id="showWebui"><label for="showWebui">Show password</label></div>
+      <div class="err" data-for="webuiHash"></div>
+      <p class="hint">Hashed here in your browser; only the hash goes into the settings, never the password.</p></div>
+    <input type="hidden" id="webuiHash">
+    <div class="row"><label for="webuiPort">Port</label><input type="text" id="webuiPort" inputmode="numeric" placeholder="8443"><div class="err" data-for="webuiPort"></div>
+      <p class="hint">Reach it at <code id="webuiUrl">https://&lt;hostname&gt;:8443/</code> once the node is up.</p></div>
+  </div>
+</div></details>
+
 <details class="group"><summary>Self-recovery <small>watchdogs and logs</small></summary><div class="body">
   <div class="check"><input type="checkbox" id="recovery" checked><label for="recovery">Keep self-recovery on (persistent logs, hardware watchdog, network watchdog)</label></div>
   <div class="row sub" id="rebootBox"><label for="reboot">Reboot after this many minutes without network (0 = never)</label><input type="text" id="reboot" value="20" inputmode="numeric"><div class="err" data-for="reboot"></div></div>
@@ -248,12 +262,13 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
 
 <script src="config.js"></script>
 <script src="sha512crypt.js"></script>
+<script src="webuihash.js"></script>
 <script>
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const form = $("f");
-  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys", "userGithub",
+  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys", "userGithub", "webuiHash", "webuiPort",
     "bandwidth", "sf", "cr", "txpower", "ifacName", "ifacPass", "mode", "tcpClients", "tcpPort", "reboot"];
 
   // option lists
@@ -269,7 +284,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   function values() {
     const v = { wifi: $("wifi").checked, wifiHidden: $("wifiHidden").checked, wifiOpen: $("wifiOpen").checked,
       ethMode: $("ethMode").value, skipWizard: $("skipWizard").checked, transportOff: $("transportOff").checked,
-      recovery: $("recovery").checked, userSudo: $("userSudo").checked };
+      recovery: $("recovery").checked, userSudo: $("userSudo").checked, webui: $("webuiOn").checked };
     FIELDS.forEach((k) => { v[k] = $(k).value; });
     const mhz = $("frequencyMhz").value.trim();
     v.frequency = /^\d+(\.\d+)?$/.test(mhz) ? String(Math.round(parseFloat(mhz) * 1e6)) : "x" + mhz;
@@ -280,10 +295,13 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   function update() {
     $("wifiBox").hidden = !$("wifi").checked;
     $("userBox").hidden = !$("userOn").checked;
+    $("webuiBox").hidden = !$("webuiOn").checked;
+    { const wp = $("webuiPort").value.trim(); $("webuiUrl").textContent = "https://<hostname>:" + (/^\d{1,5}$/.test(wp) ? wp : "8443") + "/"; }
     $("passRow").hidden = $("wifiOpen").checked;
     $("ethBox").hidden = $("ethMode").value !== "static";
     $("rebootBox").hidden = !$("recovery").checked;
     const vals = values(); if (!$("userOn").checked) { vals.userName = ""; vals.userHash = ""; vals.userKeys = ""; vals.userGithub = ""; vals.userSudo = false; }
+    if (!$("webuiOn").checked) { vals.webui = false; vals.webuiHash = ""; vals.webuiPort = ""; }
     last = BobcatConfig.build(vals);
     document.querySelectorAll(".err").forEach((e) => { e.textContent = ""; });
     document.querySelectorAll(".invalid").forEach((e) => e.classList.remove("invalid"));
@@ -314,6 +332,18 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
     update();
   });
 
+  let webuiToken = 0, webuiTimer;
+  $("showWebui").addEventListener("change", () => { $("webuiPlain").type = $("showWebui").checked ? "text" : "password"; });
+  $("webuiPlain").addEventListener("input", () => {
+    const mine = ++webuiToken, pw = $("webuiPlain").value;
+    $("webuiHash").value = ""; update();
+    clearTimeout(webuiTimer);
+    if (!pw) return;
+    webuiTimer = setTimeout(async () => {
+      try { const h = await WebuiHash.make(pw); if (mine === webuiToken) { $("webuiHash").value = h; update(); } }
+      catch (e) { if (mine === webuiToken) { document.querySelector('.err[data-for="webuiHash"]').textContent = "this browser cannot hash passwords here (it needs https)"; } }
+    }, 250);
+  });
   $("showUser").addEventListener("change", () => { $("userPlain").type = $("showUser").checked ? "text" : "password"; });
   $("userPlain").addEventListener("input", () => { const pw = $("userPlain").value; $("userHash").value = pw ? Sha512Crypt.make(pw) : ""; update(); });
 
@@ -352,13 +382,13 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   });
 
   // Remember the form in a cookie (this browser only). Passwords stay out unless asked for.
-  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash", "userHash"], NEVER_IDS = ["rootPlain", "userPlain"];   // the plaintext root password is never stored; its hash is enough
+  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash", "userHash", "webuiHash"], NEVER_IDS = ["rootPlain", "userPlain", "webuiPlain"];   // the plaintext root password is never stored; its hash is enough
   const cookieGet = () => { const m = document.cookie.split("; ").find((c) => c.startsWith(COOKIE + "=")); try { return m ? JSON.parse(decodeURIComponent(m.slice(COOKIE.length + 1))) : null; } catch (e) { return null; } };
   function cookieStatus(text, cls) { const e = $("cookieStatus"); e.textContent = text; e.className = "status " + (cls || ""); }
   $("saveCookie").addEventListener("click", () => {
     const withSecrets = $("cookieSecrets").checked, data = { secrets: withSecrets, v: {} };
     form.querySelectorAll("input[id], select[id], textarea[id]").forEach((el) => {
-      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot" || el.id === "showUser") return;
+      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot" || el.id === "showUser" || el.id === "showWebui") return;
       if (NEVER_IDS.includes(el.id) || (SECRET_IDS.includes(el.id) && !withSecrets)) return;
       data.v[el.id] = el.type === "checkbox" ? el.checked : el.value;
     });

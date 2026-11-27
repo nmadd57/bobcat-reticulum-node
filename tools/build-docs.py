@@ -25,6 +25,7 @@ DOCS = ROOT / "docs"
 ABOUT = [
     ("recovery-mode", "Putting the unit in recovery mode", "Which buttons to press, which USB port to use, and how to tell it worked."),
     ("usb-flashing", "How USB flashing works", "The two phases, why download mode alone is not enough, and what was tested on real units."),
+    ("web-interface", "The node's web interface", "Turning on the rnsd web interface, signing in, the certificate warning and managing the service."),
     ("config-reference", "Settings reference", "Every setting the installer understands, as a file key and as a command-line option."),
     ("self-recovery", "Self-recovery", "Persistent logs, the hardware and network watchdogs, and how to turn them off."),
     ("hardware-notes", "Hardware notes", "What is known about the board: radio, SPI, reset line, LEDs, bootloader."),

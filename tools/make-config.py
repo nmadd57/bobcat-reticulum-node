@@ -149,6 +149,7 @@ SECTIONS = [
                                             "TXPOWER", "PREAMBLE"]),
     ("Reticulum", ["TRANSPORT", "AUTOINTERFACE", "RNODE_FRAMING", "INTERFACE_MODE", "IFAC_NETNAME",
                    "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]),
+    ("Web interface", ["WEBUI", "WEBUI_PASSWORD_HASH", "WEBUI_PORT"]),
     ("Self-recovery", ["RESILIENCE", "NETWATCH_TARGET", "NETWATCH_REBOOT_MINUTES", "LOG_KEEP_DAYS", "LOG_MAX_MB"]),
     ("First boot", ["SCRUB_BOOT_CONF"]),
 ]
@@ -339,6 +340,13 @@ def find_public_keys():
     return sorted(ssh.glob("*.pub")) if ssh.is_dir() else []
 
 
+def pbkdf2_hash(password, iterations=200000):
+    """pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>, the format the web interface and the installer accept."""
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations, dklen=32)
+    return f"pbkdf2-sha256${iterations}${salt.hex()}${dk.hex()}"
+
+
 def hash_password(password):
     """crypt(3) SHA-512 hash through openssl (the password goes in on stdin)."""
     openssl = shutil.which("openssl")
@@ -483,6 +491,17 @@ def interview(a, s):
     port = a.ask("Accept Reticulum TCP connections on a port (opens that port; Enter for none)", check=v_int(1, 65535))
     if port:
         s.set("TCP_SERVER_PORT", port)
+
+    print("\n-- Web interface (rnsd-webui)")
+    print("  See the node's interfaces, paths and announces from a browser on your network, over HTTPS with a")
+    print("  certificate the node makes itself (the browser warns once).")
+    if a.yes("Install the web interface?"):
+        s.set("WEBUI", "yes")
+        pw = a.secret("  Web interface password (not shown)", lambda v: "at least 8 characters" if len(v) < 8 else None)
+        s.set("WEBUI_PASSWORD_HASH", pbkdf2_hash(pw))
+        wp = a.ask("  Port (Enter for 8443)", check=v_int(1, 65535))
+        if wp and wp != "8443":
+            s.set("WEBUI_PORT", wp)
 
     print("\n-- Self-recovery")
     print("  Keeps logs across crashes, resets the board if it hangs, and restarts Wi-Fi (and finally")

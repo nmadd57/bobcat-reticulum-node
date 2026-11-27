@@ -21,6 +21,7 @@
     sshKey: (v) => bad(/^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/=]+(\s.*)?$/, v) && "not a plain SSH public key line (options such as command= are not allowed)",
     userName: (v) => (bad(/^[a-z_][a-z0-9_-]{0,31}$/, v) || v === "root") && "lowercase letters, digits, - and _, starting with a letter or _ (not root)",
     hash: (v) => bad(/^\$(6|5|y)\$[^\s:]+\$[^\s:]+$/, v) && "a crypt hash such as $6$salt$hash",
+    webuiHash: (v) => bad(/^(pbkdf2-sha256\$[0-9]{1,7}\$[0-9a-f]{2,}\$[0-9a-f]{2,}|scrypt\$[0-9]+\$[0-9]+\$[0-9]+\$[0-9a-f]+\$[0-9a-f]+)$/, v) && "a pbkdf2-sha256$... hash (type a password and the page makes one)",
     timezone: (v) => bad(/^[A-Za-z0-9_+\-]+(\/[A-Za-z0-9_+\-]+)*$/, v) && "a timezone name like Europe/Berlin",
   };
 
@@ -30,6 +31,7 @@
     ["Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH", "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SSH_GITHUB_USER", "USER_SUDO", "SKIP_FIRSTLOGIN_WIZARD"]],
     ["Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE", "TXPOWER"]],
     ["Reticulum", ["TRANSPORT", "INTERFACE_MODE", "IFAC_NETNAME", "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]],
+    ["Web interface", ["WEBUI", "WEBUI_PASSWORD_HASH", "WEBUI_PORT"]],
     ["Self-recovery", ["RESILIENCE", "NETWATCH_REBOOT_MINUTES"]],
   ];
 
@@ -82,6 +84,13 @@
       if (!ubad) ukeys.forEach((k) => add("USER_SSH_KEY", k));
       if (!ughBad) ugh.forEach((u) => add("USER_SSH_GITHUB_USER", u));
       if (v.userSudo) add("USER_SUDO", "yes");
+    }
+    if (v.webui) {
+      const h = !t("webuiHash") ? "set a password for the web interface" : checks.webuiHash(t("webuiHash")); need("webuiHash", h, h);
+      let pe = ""; if (t("webuiPort")) { pe = !isInt(t("webuiPort"), 1, 65535) ? "1 to 65535" : t("webuiPort") === t("tcpPort") ? "must differ from the Reticulum TCP port" : ""; need("webuiPort", pe, pe); }
+      add("WEBUI", "yes");
+      if (!h) add("WEBUI_PASSWORD_HASH", t("webuiHash"));
+      if (t("webuiPort") && !pe && t("webuiPort") !== "8443") add("WEBUI_PORT", t("webuiPort"));
     }
     if (v.skipWizard) add("SKIP_FIRSTLOGIN_WIZARD", "yes");
 

@@ -161,6 +161,7 @@ def test_root_password_becomes_a_hash_the_installer_accepts(tmp_path):
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
+        "n",            # web interface
         "y", "",        # self-recovery on, default reboot minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
@@ -194,6 +195,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
         "gateway",             # mode
         "y", "hub.example.org:4242", "n",  # TCP hub
         "4242",                # TCP server
+        "n",                   # web interface
         "y", "30",             # self-recovery on, reboot after 30 minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
@@ -212,7 +214,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
 
 def test_questionnaire_reprompts_on_a_bad_answer(tmp_path):
     answers = "\n".join(["y", "Net", "n", "n", "short", "longenough1",   # passphrase: too short, then ok
-                         "keep", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "y", ""]) + "\n"
+                         "keep", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "y", ""]) + "\n"
     r = run("-o", str(tmp_path / "c.conf"), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert "8 to 63 characters" in r.stdout
@@ -280,6 +282,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
         "alice",                      # GitHub: fine
         "n", "n", "y",                # root password no, second user no, skip first-login yes
         "n", "n", "n", "", "n", "",   # radio, transport, IFAC, mode, hub, server
+        "n",                          # web interface
         "y", "",                      # self-recovery on, default minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
@@ -291,7 +294,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
 
 
 def test_questionnaire_can_turn_self_recovery_off(tmp_path):
-    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n"]) + "\n"
+    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "n"]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
@@ -325,6 +328,7 @@ def test_second_user_with_password_sudo_and_key(tmp_path):
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
+        "n",            # web interface
         "y", "",        # self-recovery on, default reboot minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
@@ -332,3 +336,22 @@ def test_second_user_with_password_sudo_and_key(tmp_path):
     text = out.read_text()
     assert "USER_NAME=alice" in text and "USER_PASSWORD_HASH=$6$" in text and "USER_SUDO=yes" in text, r.stdout + r.stderr + text
     assert text.count("USER_SSH_KEY=") == 1 and "pw-alice" not in text
+
+
+def test_web_interface_password_becomes_a_pbkdf2_hash_the_installer_accepts(tmp_path):
+    answers = "\n".join([
+        "n", "", "", "", "", "",        # Wi-Fi no, Ethernet keep, hostname, timezone, pasted key, GitHub
+        "n", "n",                       # root password, second user
+        "y",                            # skip first-login prompt
+        "n", "n", "n",                  # radio change, transport off, IFAC
+        "", "n", "",                    # mode, TCP hub, server port
+        "y", "web-pass-123", "9443",    # web interface: yes, password (stdin), port
+        "y", "",                        # self-recovery on, default reboot minutes
+    ]) + "\n"
+    out = tmp_path / "c.conf"
+    r = run("-o", str(out), stdin=answers, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr + r.stdout
+    text = out.read_text()
+    assert "WEBUI=yes" in text and "WEBUI_PORT=9443" in text and "WEBUI_PASSWORD_HASH=pbkdf2-sha256$200000$" in text
+    assert "web-pass-123" not in text
+    assert installer_view(out, "OPT_WEBUI") == ["1"] and installer_view(out, "OPT_WEBUI_PORT") == ["9443"]

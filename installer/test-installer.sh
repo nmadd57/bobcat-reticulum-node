@@ -168,6 +168,28 @@ has   "user: a GitHub-keys-only user is accepted" "extra user:    erin (no sudo,
 plan --hostname x
 has   "user: none by default" "extra user:    none" "$OUT"
 
+
+# ---------------------------------------------------------------- web interface
+WH='pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899'
+plan --webui --webui-password-hash "$WH"
+has   "webui: announced with the release and the default port" "web interface: yes (rnsd-webui v" "$OUT"
+has   "webui: default port 8443" "https on port 8443" "$OUT"
+hasnt "webui: the hash is never printed" "aabbccddeeff00112233" "$OUT"
+plan --webui --webui-password-hash "$WH" --webui-port 9443
+has   "webui: a chosen port" "https on port 9443" "$OUT"
+printf 'WEBUI=yes\nWEBUI_PASSWORD_HASH=%s\nWEBUI_PORT=8444\n' "$WH" > "$T/webui.conf"
+plan --config "$T/webui.conf"
+has   "webui: the settings file keys work" "https on port 8444" "$OUT"
+plan --hostname x
+has   "webui: off by default" "web interface: no" "$OUT"
+plan_ok "webui: scrypt hashes are accepted too" --webui --webui-password-hash 'scrypt$16384$8$1$00ff$aabb'
+plan_fail "reject: webui without a password hash" "needs WEBUI_PASSWORD_HASH" --webui
+plan_fail "reject: webui password given as plain text" "not a password" --webui --webui-password-hash hunter2
+plan_fail "reject: a webui hash without the webui" "needs WEBUI=yes" --webui-password-hash "$WH"
+plan_fail "reject: webui port out of range" "WEBUI_PORT must be" --webui --webui-password-hash "$WH" --webui-port 70000
+plan_fail "reject: webui port equal to the Reticulum TCP port" "must differ" --webui --webui-password-hash "$WH" --webui-port 4242 --tcp-server-port 4242
+
+
 # ----------------------------------------------------------------- rejections
 plan_fail "reject: user without a password hash or key" "needs USER_PASSWORD_HASH" --user alice
 plan_fail "reject: user password as plain text" "crypt(3) hash" --user alice --user-password-hash hunter2
@@ -229,6 +251,15 @@ call() {   # call <body> [installer args...]: runs <body> in a fresh shell with 
         BASH_ENV=/dev/null bash -c 'src="$1"; shift; body="$1"; shift; . "$src" "$@"; eval "$body"' _ "$INSTALLER" "$body" "$@" 2>&1
 }
 mkdir -p "$T/prefix/sx1302_rns/interfaces"
+
+# web interface unit file
+WH='pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899'
+out="$(call 'render_webui_unit' --webui --webui-password-hash "$WH" --webui-port 9443)"
+has   "webui unit: runs the venv's rnsd-webui on the chosen port with TLS" "rnsd-webui --listen 0.0.0.0:9443" "$out"
+has   "webui unit: uses the generated certificate" "--tls-cert /var/lib/rnsd-webui/tls/cert.pem" "$out"
+has   "webui unit: starts after the radio service" "rnsd-sx1302.service" "$out"
+has   "webui unit: hardened" "ProtectSystem=strict" "$out"
+hasnt "webui unit: no password or hash in the unit" "pbkdf2" "$out"
 
 
 # Clock wait: returns at once when synced, gives up (not fatal) when it never does

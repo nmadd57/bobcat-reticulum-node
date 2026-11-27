@@ -89,3 +89,8 @@
 #                           the Wi-Fi/Ethernet settings above)
 #   bobcat-authorized_keys  SSH public keys for root
 #   bobcat-reticulum.conf   a complete Reticulum config (replaces the generated one)
+
+# Optional: the rnsd web interface (see docs/web-interface.md). The flasher page makes the hash for you.
+#WEBUI=yes
+#WEBUI_PASSWORD_HASH=pbkdf2-sha256$200000$<salt hex>$<hash hex>
+#WEBUI_PORT=8443

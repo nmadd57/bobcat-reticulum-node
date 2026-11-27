@@ -118,6 +118,9 @@ Installed by default; details in [`self-recovery.md`](self-recovery.md).
 
 | Key | Option | Meaning |
 |---|---|---|
+| `WEBUI` | `--webui` | `yes` also installs the rnsd web interface (rnsd-webui) as a service, over HTTPS with a certificate made on the node. Needs `WEBUI_PASSWORD_HASH`. See [the web interface](web-interface.md) |
+| `WEBUI_PASSWORD_HASH` | `--webui-password-hash` | its login password as a hash: `pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>` (the flasher and `tools/make-config.py` make one) or `scrypt$...`; plain text is refused |
+| `WEBUI_PORT` | `--webui-port` | its HTTPS port (default `8443`); must differ from `TCP_SERVER_PORT` |
 | `RESILIENCE` | `--no-resilience` | `no` removes persistent logs, the watchdogs and the network watchdog |
 | `NETWATCH_TARGET` | `--netwatch-target` | host or IP to ping instead of the default gateway |
 | `NETWATCH_REBOOT_MINUTES` | `--netwatch-reboot-minutes` | reboot after this many minutes without network; `0` never, otherwise 5-1440 (default 20) |
