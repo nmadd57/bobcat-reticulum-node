@@ -24,18 +24,20 @@ One page makes your settings file and writes the OS image to the unit over USB. 
 to install. It runs in your browser (**Chrome or Edge**); your settings and the image never leave your
 computer.
 
-1. Open **[bobcat.galaxyone.space](https://bobcat.galaxyone.space/)** and fill in what you need: Wi-Fi
-   (optional; Ethernet DHCP is the default), hostname, SSH keys for root or pasted in or pulled from GitHub,
-   a root password (hashed in your browser), optionally a second user with sudo, and the radio settings.
-   You can save the form in a cookie (passwords only if you tick the box).
-2. Under **Flash over USB**, pick the image: the latest release of this project (the default), a file you
-   already have, or a URL.
-3. Put the unit in recovery mode: power it, connect the micro-USB port labelled **COM** (next to the LoRa connector) to your computer, hold **Recovery** and
-   quickly press and release **Reset**, then let go of Recovery after about two seconds (the buttons can be reached
-   through the slots in the case; photos and details: [`docs/recovery-mode.md`](docs/recovery-mode.md)). Press *Connect*
-   and choose *USB download gadget* (a factory unit shows up without a name; that works too).
-4. The page writes the image's bootloader, the partition table and a small boot area, then restarts the board into fastboot. Press *Connect* again, choose the
-   fastboot device, and press *Flash*. It writes the system, adds your settings file, and reboots.
+1. Open **[bobcat.galaxyone.space](https://bobcat.galaxyone.space/)** and **choose the system image**: the latest release
+   of this project (the default), a file you already have, or a web address.
+2. **Set up the node** (optional): Wi-Fi (Ethernet DHCP is the default), hostname, SSH keys for root, a root password
+   (hashed in your browser), optionally a second user with sudo, and the radio settings. You can remember the form in a
+   cookie (passwords only if you tick the box), or save the settings as a file for the SD card route below.
+3. **Put the unit in recovery mode**: power it, connect the micro-USB port labelled **COM** (next to the LoRa connector)
+   to your computer, hold **Recovery** and quickly press and release **Reset**, then let go of Recovery after about two
+   seconds (the buttons can be reached through the slots in the case; photos and details:
+   [`docs/recovery-mode.md`](docs/recovery-mode.md)).
+4. **Connect and prepare the board**: press *Connect* and choose *USB download gadget* (a factory unit shows up without a
+   name; that works too). The page writes the image's bootloader, the partition table and a small boot area, then restarts
+   the board into fastboot.
+5. **Flash**: press *Connect* again and choose the fastboot device, then *Flash*. It writes the system, adds your settings
+   file, and reboots.
 
 First boot then installs the node by itself: the LED **blinks blue** while it installs, **turns steady red** if
 there is no network (no address after about 20 seconds), **blinks red slowly** after a failed attempt, and turns

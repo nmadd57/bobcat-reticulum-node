@@ -4,56 +4,77 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bobcat 300 Reticulum Flasher</title>
-<meta name="description" content="Make the bobcat-install.conf settings file for a Bobcat Reticulum node. Everything happens in your browser.">
+<meta name="description" content="Flash a Bobcat Miner 300 (G290/G295) with a Reticulum LoRa node from your browser, over USB, with your settings in place.">
 <style>
-:root{--bg:#fbfaf8;--fg:#1d1b1a;--mut:#6b6560;--line:#ddd7d0;--card:#fff;--red:#c8001e;--redfg:#fff;--bad:#b00020;--ok:#1b6e3a;--code:#f3efea}
+:root{color-scheme:light dark;--bg:#fbfaf8;--fg:#1d1b1a;--mut:#6b6560;--line:#ddd7d0;--card:#fff;--red:#c8001e;--redfg:#fff;--bad:#b00020;--ok:#1b6e3a;--code:#f3efea;--r:10px}
 @media (prefers-color-scheme:dark){:root{--bg:#161413;--fg:#efe9e3;--mut:#a39b93;--line:#3a3532;--card:#1e1b1a;--red:#ff4a5f;--redfg:#1a0508;--bad:#ff8a9a;--ok:#7bd89a;--code:#12100f}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:1100px;margin:0 auto;padding:24px 18px 64px}
-header{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-header img{width:120px;height:auto}
-h1{margin:0;font-size:1.6rem;line-height:1.2}
-h1 small{display:block;color:var(--red);font-size:1rem;font-weight:600;margin-top:4px}
-.lead{color:var(--mut);max-width:70ch;margin:8px 0 24px}
-.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:24px;align-items:start}
-@media (max-width:860px){.grid{grid-template-columns:1fr}}
-fieldset{border:1px solid var(--line);background:var(--card);border-radius:10px;margin:0 0 16px;padding:14px 16px 6px}
-legend{font-weight:700;padding:0 6px}
-.row{margin:0 0 12px}
-label{display:block;font-weight:600;font-size:.92rem;margin-bottom:3px}
-.hint{color:var(--mut);font-size:.84rem;margin:3px 0 0}
-input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg);font:inherit}
-textarea{min-height:76px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace}
-input:focus,select:focus,textarea:focus{outline:2px solid var(--red);outline-offset:1px}
-.check{display:flex;gap:8px;align-items:flex-start;margin:0 0 10px}
-.check input{margin-top:5px}.check label{margin:0;font-weight:500}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media (max-width:520px){.cols{grid-template-columns:1fr}}
-.sub{margin-left:22px;padding-left:12px;border-left:3px solid var(--line)}
-.err{color:var(--bad);font-size:.84rem;margin:3px 0 0;min-height:0}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;overflow-wrap:anywhere}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 56px}
+header{display:flex;gap:16px;align-items:center;margin-bottom:12px}
+header img{width:88px;height:auto;flex:none}
+h1{margin:0;font-size:1.45rem;line-height:1.2}
+h1 small{display:block;color:var(--red);font-size:.95rem;font-weight:600;margin-top:4px}
+.lead{color:var(--mut);margin:0 0 16px}
+a{color:var(--red)}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.88em}
+
+/* one column of numbered steps */
+.step{border:1px solid var(--line);background:var(--card);border-radius:var(--r);padding:16px;margin:0 0 14px}
+.step.off{opacity:.5;pointer-events:none}
+.step>h2{display:flex;gap:10px;align-items:center;margin:0 0 10px;font-size:1.08rem;line-height:1.25}
+.step>h2 .n{flex:none;display:inline-flex;align-items:center;justify-content:center;width:1.7em;height:1.7em;border-radius:50%;background:var(--red);color:var(--redfg);font-size:.9rem;font-weight:700}
+.step p{margin:0 0 10px}
+.note{border-left:4px solid var(--red);padding:8px 12px;background:var(--card);border-radius:0 8px 8px 0;margin:0 0 14px;font-size:.92rem}
+.hint{color:var(--mut);font-size:.84rem;margin:4px 0 0}
+.status{font-size:.9rem;margin:6px 0;color:var(--mut)}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
+ol.steps{padding-left:1.3em;margin:0 0 12px}ol.steps li{margin:6px 0}
+
+/* form controls: 16px so phones do not zoom in, comfortable touch targets */
+label{display:block;font-weight:600;font-size:.92rem;margin-bottom:4px}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit;font-size:16px}
+input[type=file]{width:100%;font:inherit}
+textarea{min-height:84px;font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+input:focus,select:focus,textarea:focus,summary:focus-visible,button:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 input.invalid,textarea.invalid,select.invalid{border-color:var(--bad)}
-.side{position:sticky;top:12px}
-@media (max-width:860px){.side{position:static}}
-pre{margin:0;padding:12px;background:var(--code);border:1px solid var(--line);border-radius:8px;overflow:auto;font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace;max-height:55vh;white-space:pre}
-.btns{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-button{font:inherit;font-weight:600;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+.row{margin:0 0 14px}
+.err{color:var(--bad);font-size:.84rem;margin:4px 0 0}
+.check{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px}
+.check input{flex:none;width:20px;height:20px;margin:2px 0 0}
+.check label,.check span{margin:0;font-weight:500}
+.sub{margin:0 0 12px 4px;padding-left:12px;border-left:3px solid var(--line)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+@media (max-width:560px){.cols{grid-template-columns:1fr}}
+
+/* settings groups */
+.group{border:1px solid var(--line);border-radius:8px;margin:0 0 10px;background:var(--bg)}
+.group>summary{cursor:pointer;font-weight:700;padding:12px 14px;list-style:none;display:flex;justify-content:space-between;gap:10px;align-items:center;min-height:44px}
+.group>summary::-webkit-details-marker{display:none}
+.group>summary::after{content:"+";flex:none;color:var(--mut);font-weight:400;font-size:1.3rem;line-height:1}
+.group[open]>summary::after{content:"\2212"}
+.group>summary small{color:var(--mut);font-weight:400;font-size:.82rem}
+.group>.body{padding:4px 14px 6px;border-top:1px solid var(--line)}
+.group>.body>:first-child{margin-top:12px}
+
+/* buttons */
+button{font:inherit;font-weight:600;padding:10px 16px;min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
 button.primary{background:var(--red);color:var(--redfg);border-color:var(--red)}
 button:disabled{opacity:.45;cursor:not-allowed}
-.status{font-size:.9rem;margin:6px 0}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
-ol{padding-left:20px;margin:8px 0}li{margin:4px 0}
-.note{border-left:4px solid var(--red);padding:8px 12px;background:var(--card);border-radius:0 8px 8px 0;margin:0 0 16px;font-size:.92rem}
-code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
-footer{margin-top:32px;color:var(--mut);font-size:.85rem}
-a{color:var(--red)}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+@media (max-width:560px){.btns button{flex:1 1 100%}}
+[hidden]{display:none!important}
+progress{display:block;width:100%;height:14px;accent-color:var(--red);margin:8px 0}
 
-.card{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 14px}
-.card.off{opacity:.5;pointer-events:none}
-.row2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
-progress{width:100%;height:14px;accent-color:var(--red)}
-.card pre{margin:8px 0 0;max-height:240px;white-space:pre-wrap}
-.card h2{font-size:1.05rem;margin:0 0 8px}
-details summary{cursor:pointer;font-weight:600}
+/* code and log blocks wrap instead of scrolling sideways */
+pre{margin:8px 0 0;padding:12px;background:var(--code);border:1px solid var(--line);border-radius:8px;font:12.5px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+pre.log{max-height:16rem;overflow:auto}
+details.more{margin:12px 0 0}
+details.more>summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center;gap:8px;list-style:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"\25B8";color:var(--mut);transition:transform .15s}
+details.more[open]>summary::before{transform:rotate(90deg)}
+footer{margin-top:28px;color:var(--mut);font-size:.85rem}
 </style>
 </head>
 <body>
@@ -62,64 +83,79 @@ details summary{cursor:pointer;font-weight:600}
   <img src="logo.svg" alt="Cat ears over a hammer and sickle in one circle">
   <h1>Bobcat 300 Reticulum Flasher<small>The People's RNode</small></h1>
 </header>
-<p class="lead">Fill in what you need and leave the rest. This makes the <code>bobcat-install.conf</code> file that goes on the flasher SD card next to the image. Everything happens in this page; nothing you type is sent anywhere.</p>
+<p class="lead">Turn a Bobcat Miner 300 (G290 or G295) into a Reticulum LoRa node from your browser, over USB. Choose the system image, set up the node, and flash it. Everything happens on your computer; nothing you type is uploaded. Needs Chrome or Edge.</p>
+<div id="unsupported" class="note" hidden></div>
+<div class="note"><strong>This erases the unit's internal storage.</strong></div>
 
-<div class="grid">
+<!-- 1 -->
+<section class="step" id="s1">
+  <h2><span class="n">1</span>Choose the system image</h2>
+  <div class="check"><input type="radio" name="src" id="srcRepo" value="repo" checked><label for="srcRepo">The latest release of this project <span class="status" id="repoInfo"></span></label></div>
+  <div class="check"><input type="radio" name="src" id="srcFile" value="file"><label for="srcFile">A file I have (<code>.img.xz</code> or <code>.img</code>)</label></div>
+  <div class="check"><input type="radio" name="src" id="srcUrl" value="url"><label for="srcUrl">A web address</label></div>
+  <div id="fileBox" hidden><input type="file" id="file" accept=".xz,.img"></div>
+  <div id="urlBox" hidden><input type="text" id="url" placeholder="https://example.org/bobcat-g295-emmc.img.xz" spellcheck="false" autocapitalize="none"><p class="hint">The server must allow cross-origin requests (CORS), or the browser refuses to read it. GitHub release links do not. The image is read in your browser; nothing is uploaded.</p></div>
+  <div class="status" id="fileStatus"></div>
+</section>
+
+<!-- 2 -->
+<section class="step" id="s2">
+  <h2><span class="n">2</span>Set up the node <span class="status" style="font-weight:400;margin:0">(optional)</span></h2>
+  <p>Everything here is optional. With nothing set, the unit installs with defaults over a network cable.</p>
+  <div id="status" class="status"></div>
+
 <form id="f" autocomplete="off" novalidate>
 
-<fieldset><legend>Wi-Fi</legend>
-  <div class="check"><input type="checkbox" id="wifi"><label for="wifi">Join a Wi-Fi network (optional; without it the unit needs a network cable)</label></div>
+<details class="group" open><summary>Network <small>Wi-Fi and Ethernet</small></summary><div class="body">
+  <div class="check"><input type="checkbox" id="wifi"><label for="wifi">Join a Wi-Fi network (without it the unit needs a network cable)</label></div>
   <div id="wifiBox" class="sub">
-    <div class="row"><label for="wifiSsid">Network name (SSID)</label><input type="text" id="wifiSsid"><div class="err" data-for="wifiSsid"></div>
+    <div class="row"><label for="wifiSsid">Network name (SSID)</label><input type="text" id="wifiSsid" autocapitalize="none" autocorrect="off"><div class="err" data-for="wifiSsid"></div>
       <p class="hint">2.4 GHz only: this board's Wi-Fi chip cannot see 5 GHz. The network must also reach the internet for the install.</p></div>
     <div class="check"><input type="checkbox" id="wifiHidden"><label for="wifiHidden">Hidden network (name not broadcast)</label></div>
     <div class="check"><input type="checkbox" id="wifiOpen"><label for="wifiOpen">Open network, no password</label></div>
     <div class="row" id="passRow"><label for="wifiPass">Wi-Fi passphrase</label><input type="password" id="wifiPass" autocomplete="new-password"><div class="err" data-for="wifiPass"></div>
-      <div class="check" style="margin-top:6px"><input type="checkbox" id="showPass"><label for="showPass">Show passphrase</label></div></div>
+      <div class="check" style="margin:8px 0 0"><input type="checkbox" id="showPass"><label for="showPass">Show passphrase</label></div></div>
   </div>
-</fieldset>
-
-<fieldset><legend>Ethernet</legend>
-  <div class="row"><label for="ethMode">Mode</label>
-    <select id="ethMode"><option value="dhcp" selected>DHCP, managed by netplan (default)</option><option value="keep">Leave as is</option><option value="static">Static address</option></select></div>
+  <div class="row"><label for="ethMode">Ethernet (netplan)</label>
+    <select id="ethMode"><option value="dhcp" selected>DHCP (default)</option><option value="keep">Leave as is</option><option value="static">Static address</option></select></div>
   <div id="ethBox" class="sub" hidden>
-    <div class="row"><label for="ethAddress">Address with prefix</label><input type="text" id="ethAddress" placeholder="192.168.1.50/24"><div class="err" data-for="ethAddress"></div></div>
+    <div class="row"><label for="ethAddress">Address with prefix</label><input type="text" id="ethAddress" placeholder="192.168.1.50/24" inputmode="decimal"><div class="err" data-for="ethAddress"></div></div>
     <div class="cols">
-      <div class="row"><label for="ethGateway">Gateway</label><input type="text" id="ethGateway" placeholder="192.168.1.1"><div class="err" data-for="ethGateway"></div></div>
+      <div class="row"><label for="ethGateway">Gateway</label><input type="text" id="ethGateway" placeholder="192.168.1.1" inputmode="decimal"><div class="err" data-for="ethGateway"></div></div>
       <div class="row"><label for="ethDns">DNS servers</label><input type="text" id="ethDns" placeholder="192.168.1.1, 9.9.9.9"><div class="err" data-for="ethDns"></div></div>
     </div>
   </div>
-</fieldset>
+</div></details>
 
-<fieldset><legend>System</legend>
+<details class="group"><summary>Accounts <small>name, keys, passwords</small></summary><div class="body">
   <div class="cols">
-    <div class="row"><label for="hostname">Hostname</label><input type="text" id="hostname" placeholder="bobcat-01"><div class="err" data-for="hostname"></div></div>
-    <div class="row"><label for="timezone">Timezone</label><input type="text" id="timezone" list="tzs" placeholder="America/New_York"><datalist id="tzs"></datalist><div class="err" data-for="timezone"></div></div>
+    <div class="row"><label for="hostname">Hostname</label><input type="text" id="hostname" placeholder="bobcat-01" autocapitalize="none" autocorrect="off"><div class="err" data-for="hostname"></div></div>
+    <div class="row"><label for="timezone">Timezone</label><input type="text" id="timezone" list="tzs" placeholder="America/New_York" autocapitalize="none"><datalist id="tzs"></datalist><div class="err" data-for="timezone"></div></div>
   </div>
   <div class="row"><label for="sshKeys">SSH public keys for root (one per line)</label><textarea id="sshKeys" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><div class="err" data-for="sshKeys"></div></div>
-  <div class="row"><label for="github">GitHub usernames allowed to log in as root</label><input type="text" id="github" placeholder="your-github-name, a-friend"><div class="err" data-for="github"></div><div class="status" id="ghStatus"></div>
+  <div class="row"><label for="github">GitHub usernames allowed to log in as root</label><input type="text" id="github" placeholder="your-github-name, a-friend" autocapitalize="none"><div class="err" data-for="github"></div><div class="status" id="ghStatus"></div>
     <p class="hint">The node fetches the keys those accounts publish (<code>github.com/NAME.keys</code>) once, while installing.</p></div>
-  <div class="row"><label for="rootPlain">Root password (optional)</label><input type="password" id="rootPlain" autocomplete="new-password" spellcheck="false">
-    <div class="check" style="margin-top:6px"><input type="checkbox" id="showRoot"><label for="showRoot">Show password</label></div>
-    <p class="hint">Hashed here in your browser (SHA-512 crypt); only the hash goes into the file, never the password. Without it the image default (<code>1234</code>) stays, so prefer SSH keys.</p></div>
-  <div class="row"><label for="rootHash">Root password hash</label><input type="text" id="rootHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="rootHash"></div>
+  <div class="row"><label for="rootPlain">Root password</label><input type="password" id="rootPlain" autocomplete="new-password" spellcheck="false">
+    <div class="check" style="margin:8px 0 0"><input type="checkbox" id="showRoot"><label for="showRoot">Show password</label></div>
+    <p class="hint">Hashed here in your browser (SHA-512 crypt); only the hash is used, never the password. Without it the image default (<code>1234</code>) stays, so prefer SSH keys.</p></div>
+  <div class="row"><label for="rootHash">Root password hash</label><input type="text" id="rootHash" placeholder="$6$salt$hash" spellcheck="false" autocapitalize="none"><div class="err" data-for="rootHash"></div>
     <p class="hint">Filled in from the password above. You can also paste a hash you made yourself (<code>mkpasswd -m sha-512</code> or <code>openssl passwd -6</code>).</p></div>
   <div class="check"><input type="checkbox" id="userOn"><label for="userOn">Also create a second user</label></div>
   <div id="userBox" class="sub" hidden>
-    <div class="row"><label for="userName">User name</label><input type="text" id="userName" placeholder="username" spellcheck="false" autocapitalize="none"><div class="err" data-for="userName"></div></div>
+    <div class="row"><label for="userName">User name</label><input type="text" id="userName" placeholder="username" spellcheck="false" autocapitalize="none" autocorrect="off"><div class="err" data-for="userName"></div></div>
     <div class="row"><label for="userPlain">Password</label><input type="password" id="userPlain" autocomplete="new-password" spellcheck="false">
-      <div class="check" style="margin-top:6px"><input type="checkbox" id="showUser"><label for="showUser">Show password</label></div>
-      <p class="hint">Hashed here in your browser, like the root password. Only the hash goes into the file.</p></div>
-    <div class="row"><label for="userHash">Password hash</label><input type="text" id="userHash" placeholder="$6$salt$hash" spellcheck="false"><div class="err" data-for="userHash"></div></div>
+      <div class="check" style="margin:8px 0 0"><input type="checkbox" id="showUser"><label for="showUser">Show password</label></div>
+      <p class="hint">Hashed here in your browser, like the root password.</p></div>
+    <div class="row"><label for="userHash">Password hash</label><input type="text" id="userHash" placeholder="$6$salt$hash" spellcheck="false" autocapitalize="none"><div class="err" data-for="userHash"></div></div>
     <div class="row"><label for="userKeys">SSH public keys for this user (optional, one per line)</label><textarea id="userKeys" placeholder="ssh-ed25519 AAAA… you@laptop" spellcheck="false"></textarea><div class="err" data-for="userKeys"></div></div>
-    <div class="row"><label for="userGithub">GitHub usernames whose keys this user may log in with (optional)</label><input type="text" id="userGithub" placeholder="your-github-name, a-friend"><div class="err" data-for="userGithub"></div>
-      <p class="hint">The node fetches the keys those accounts publish (<code>github.com/NAME.keys</code>) once, while installing.</p></div>
+    <div class="row"><label for="userGithub">GitHub usernames whose keys this user may log in with (optional)</label><input type="text" id="userGithub" placeholder="your-github-name, a-friend" autocapitalize="none"><div class="err" data-for="userGithub"></div>
+      <p class="hint">Fetched once, while installing.</p></div>
     <div class="check"><input type="checkbox" id="userSudo"><label for="userSudo">Allow this user to use sudo (full administrator rights)</label></div>
   </div>
   <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node)</label></div>
-</fieldset>
+</div></details>
 
-<fieldset><legend>Radio <span style="font-weight:400;color:var(--mut)">(must match your other nodes)</span></legend>
+<details class="group"><summary>Radio <small>must match your other nodes</small></summary><div class="body">
   <div class="cols">
     <div class="row"><label for="frequencyMhz">Frequency (MHz)</label><input type="text" id="frequencyMhz" value="915" inputmode="decimal"><div class="err" data-for="frequency"></div></div>
     <div class="row"><label for="bandwidth">Bandwidth</label><select id="bandwidth"><option value="125000" selected>125 kHz</option><option value="250000">250 kHz</option><option value="500000">500 kHz</option></select>
@@ -128,103 +164,85 @@ details summary{cursor:pointer;font-weight:600}
     <div class="row"><label for="cr">Coding rate</label><select id="cr"><option value="5" selected>4/5</option><option value="6">4/6</option><option value="7">4/7</option><option value="8">4/8</option></select></div>
     <div class="row"><label for="txpower">TX power (dBm)</label><select id="txpower"></select><p class="hint">Never transmit without an antenna connected.</p></div>
   </div>
-</fieldset>
+</div></details>
 
-<fieldset><legend>Reticulum</legend>
+<details class="group"><summary>Reticulum <small>transport, IFAC, TCP</small></summary><div class="body">
   <div class="check"><input type="checkbox" id="transportOff"><label for="transportOff">Do not repeat other nodes' traffic (turn transport off)</label></div>
   <div class="cols">
-    <div class="row"><label for="ifacName">IFAC network name</label><input type="text" id="ifacName"><div class="err" data-for="ifacName"></div></div>
+    <div class="row"><label for="ifacName">IFAC network name</label><input type="text" id="ifacName" autocapitalize="none"><div class="err" data-for="ifacName"></div></div>
     <div class="row"><label for="ifacPass">IFAC passphrase</label><input type="password" id="ifacPass" autocomplete="new-password"><div class="err" data-for="ifacPass"></div></div>
   </div>
-  <p class="hint" style="margin-top:-6px;margin-bottom:12px">Optional. Only nodes with the same name and passphrase will talk to this one.</p>
+  <p class="hint" style="margin:-6px 0 14px">Optional. Only nodes with the same name and passphrase will talk to this one.</p>
   <div class="row"><label for="mode">Interface mode</label><select id="mode"><option>full</option><option>gateway</option><option>access_point</option><option>roaming</option><option>boundary</option><option>pointtopoint</option></select></div>
   <div class="row"><label for="tcpClients">Connect to Reticulum TCP hubs (host:port, one per line)</label><textarea id="tcpClients" placeholder="hub.example.org:4242" spellcheck="false"></textarea><div class="err" data-for="tcpClients"></div></div>
   <div class="row"><label for="tcpPort">Accept TCP connections on port</label><input type="text" id="tcpPort" inputmode="numeric" placeholder="none"><div class="err" data-for="tcpPort"></div><p class="hint">Opens that port on the node.</p></div>
-</fieldset>
+</div></details>
 
-<fieldset><legend>Self-recovery</legend>
+<details class="group"><summary>Self-recovery <small>watchdogs and logs</small></summary><div class="body">
   <div class="check"><input type="checkbox" id="recovery" checked><label for="recovery">Keep self-recovery on (persistent logs, hardware watchdog, network watchdog)</label></div>
   <div class="row sub" id="rebootBox"><label for="reboot">Reboot after this many minutes without network (0 = never)</label><input type="text" id="reboot" value="20" inputmode="numeric"><div class="err" data-for="reboot"></div></div>
-</fieldset>
+</div></details>
 </form>
 
-<aside class="side">
-  <div class="note"><strong>Your file contains secrets</strong> if you set a Wi-Fi passphrase. It stays on your computer; the node clears the passphrase from the SD card after a successful install.</div>
-  <div id="status" class="status"></div>
-  <div class="btns" style="margin:0 0 10px">
-    <button type="button" id="saveCookie">Save settings in a cookie</button>
-    <button type="button" id="clearCookie">Forget saved settings</button>
-  </div>
-  <div class="check"><input type="checkbox" id="cookieSecrets"><label for="cookieSecrets">Include the Wi-Fi/IFAC passwords and the root password hash in the cookie</label></div>
+<details class="more"><summary>Remember these settings in this browser</summary>
+  <p class="hint" style="margin-top:8px">Saved in a cookie for a year. Passwords stay out unless you tick the box.</p>
+  <div class="btns"><button type="button" id="saveCookie">Save settings</button><button type="button" id="clearCookie">Forget saved settings</button></div>
+  <div class="check"><input type="checkbox" id="cookieSecrets"><label for="cookieSecrets">Include the Wi-Fi and IFAC passwords and the root password hash</label></div>
   <div class="status" id="cookieStatus"></div>
+</details>
+
+<details class="more"><summary>Save these settings as a file instead</summary>
+  <p class="hint" style="margin-top:8px">For writing an SD card by hand, or to keep. The file contains secrets if you set a passphrase; it stays on your computer. The preview hides passphrases; the downloaded and copied file has them.</p>
   <pre id="out" aria-label="Generated bobcat-install.conf"></pre>
-  <p class="hint">Passphrases are hidden in this preview; the downloaded, copied and flashed file has them.</p>
-  <div class="btns">
-    <button type="button" class="primary" id="dl">Download bobcat-install.conf</button>
-    <button type="button" id="copy">Copy</button>
-  </div>
-  <h2 style="font-size:1.05rem;margin:18px 0 4px">Then</h2>
-  <ol>
-    <li>Write <code>bobcat-g295-flasher.img.xz</code> from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a> to an SD card with <code>dd</code> or any imaging tool.</li>
-    <li>Copy the downloaded file onto the card's <strong>BOBCFG</strong> drive, keeping the exact name.</li>
-    <li>Put the card in the Bobcat and power on. When the LEDs flash quickly, power off and remove the card, then power on again.</li>
-  </ol>
-  <p class="hint">This erases the Bobcat's internal storage.</p>
-</aside>
-</div>
-
-<section id="usb">
-<h2 style="font-size:1.25rem;margin:28px 0 6px">Or flash it over USB <small style="color:var(--mut);font-weight:500">(experimental)</small></h2>
-<p class="lead" style="margin:0 0 14px">Write the OS image straight to the unit's internal storage from this page over its micro-USB port labelled COM, with the settings above already in place. No SD card. Needs Chrome or Edge. Tested against an emulated board and the same protocol by hand; this page has not yet flashed a real unit.</p>
-<div id="unsupported" class="note" hidden></div>
-<div class="note"><strong>This erases the unit's internal storage.</strong> Use the <code>bobcat-g295-emmc.img.xz</code> image from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a>, not the standalone SD image.</div>
-<section class="card" id="s1">
-  <h2>1. The OS image</h2>
-  <div class="check"><input type="radio" name="src" id="srcRepo" value="repo" checked><label for="srcRepo">The latest release from this project <span class="status" id="repoInfo"></span></label></div>
-  <div class="check"><input type="radio" name="src" id="srcFile" value="file"><label for="srcFile">A file I have (<code>.img.xz</code> or <code>.img</code>)</label></div>
-  <div class="check"><input type="radio" name="src" id="srcUrl" value="url"><label for="srcUrl">A URL</label></div>
-  <div id="fileBox" hidden><input type="file" id="file" accept=".xz,.img"></div>
-  <div id="urlBox" hidden><input type="text" id="url" placeholder="https://example.org/bobcat-g295-emmc.img.xz" spellcheck="false"><p class="hint">The server must allow cross-origin requests (CORS), or the browser refuses to read it. GitHub release links do not. The image is read in your browser; nothing is uploaded.</p></div>
-  <div class="status" id="fileStatus"></div>
-</section>
-
-<section class="card off" id="s3">
-  <h2>2. Put the board in download mode</h2>
-  <ol style="margin:0 0 8px;padding-left:20px">
-    <li>Remove the SD card. Connect the board's micro-USB port labelled <strong>COM</strong> (next to the LoRa connector) to this computer.</li>
-    <li>Hold <strong>Recovery</strong>, press and release <strong>Reset</strong>, then release Recovery after about two seconds (the buttons can be pressed through the slots in the side of the case; <a href="https://github.com/nmadd57/bobcat-reticulum-node/blob/main/docs/recovery-mode.md">photos and details</a>). A unit that still has the factory firmware stays in <em>Maskrom</em> (no product name): that is fine, the page sends it a loader first.</li>
-    <li>Press <em>Connect</em> and choose <em>USB download gadget</em> (<code>2207:350a</code>).</li>
-  </ol>
-  <label class="check"><input type="checkbox" id="confirm"><span>I understand this erases the board's internal storage.</span></label>
-  <div class="row2"><button id="connectRock" class="primary" type="button" disabled>Connect</button><button id="writeBoot" type="button" disabled>Write the boot area and restart the board</button></div>
-  <progress id="p1" max="1" value="0" hidden></progress><div class="status" id="s3status"></div>
-</section>
-
-<section class="card" id="s4">
-  <h2>3. Flash</h2>
-  <p class="status" style="margin-top:0">The board restarts into fastboot (<code>18d1:4d00</code>). Press <em>Connect</em> and choose it. A board that is already in fastboot can be connected here directly, without step 2. The flash takes a few minutes; keep the cable in and this tab open.</p>
-  <div class="row2"><button id="connectFb" class="primary" type="button">Connect</button><button id="flash" type="button" disabled>Flash</button></div>
-  <div class="status" id="phase"></div><progress id="p2" max="1" value="0" hidden></progress><div class="status" id="s4status"></div>
-</section>
-
-<section class="card">
-  <h2>Log</h2>
-  <pre id="log" aria-live="polite">Nothing yet.</pre>
-</section>
-<details class="card">
-  <summary>Browser and driver requirements</summary>
-  <ul>
-    <li><strong>Chrome, Edge or another Chromium browser</strong> (WebUSB). Firefox and Safari do not support it.</li>
-    <li><strong>Linux:</strong> the browser needs permission to open the device. For example in <code>/etc/udev/rules.d/99-bobcat.rules</code>:
-      <pre>SUBSYSTEM=="usb", ATTR{idVendor}=="2207", MODE="0666"
-SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</pre></li>
-    <li><strong>Windows:</strong> the two USB devices need the WinUSB driver (for example with Zadig), or the page cannot open them.</li>
-    <li><strong>macOS:</strong> usually works without anything extra.</li>
-  </ul>
+  <div class="btns"><button type="button" id="dl">Download bobcat-install.conf</button><button type="button" id="copy">Copy</button></div>
+  <p class="hint">SD card route: write <code>bobcat-g295-flasher.img.xz</code> from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a> to a card, copy this file onto the card's <strong>BOBCFG</strong> drive keeping the exact name, boot the Bobcat from the card, and when the LEDs flash quickly power off, remove the card and power on again.</p>
 </details>
 </section>
 
-<footer>Unofficial: not made by, affiliated with or endorsed by Bobcat, Bobber or Helium. <a href="https://github.com/nmadd57/bobcat-reticulum-node">Source and documentation</a>. The same file can be made with <code>tools/make-config.py</code>.</footer>
+<!-- 3 -->
+<section class="step" id="s2b">
+  <h2><span class="n">3</span>Put the unit in recovery mode</h2>
+  <ol class="steps">
+    <li>Power the unit.</li>
+    <li>Connect the micro-USB port labelled <strong>COM</strong> (next to the LoRa connector) to this computer.</li>
+    <li>Hold <strong>Recovery</strong> and quickly press and release <strong>Reset</strong>, then let go of Recovery after about two seconds. With the cover on, press the buttons through the slots in the right-hand side of the case.</li>
+  </ol>
+  <p><a href="https://github.com/nmadd57/bobcat-reticulum-node/blob/main/docs/recovery-mode.md#putting-a-bobcat-300-into-recovery-mode">Photos, button positions and troubleshooting</a></p>
+  <p class="hint">A unit that still has the factory firmware shows up without a name (Maskrom). That is fine: the page sends it a loader first. A unit that has run this system before shows as "USB download gadget".</p>
+  <details class="more"><summary>Browser and driver requirements</summary>
+    <ul>
+      <li><strong>Chrome, Edge or another Chromium browser</strong> (WebUSB). Firefox and Safari do not support it.</li>
+      <li><strong>Linux:</strong> the browser needs permission to open the device, for example with a udev rule in <code>/etc/udev/rules.d/99-bobcat.rules</code>:
+        <pre>SUBSYSTEM=="usb", ATTR{idVendor}=="2207", MODE="0666"
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</pre></li>
+      <li><strong>Windows:</strong> the USB devices need the WinUSB driver (for example installed with Zadig), or the page cannot open them.</li>
+      <li><strong>macOS:</strong> usually works without anything extra.</li>
+    </ul>
+  </details>
+</section>
+
+<!-- 4 -->
+<section class="step off" id="s3">
+  <h2><span class="n">4</span>Connect and prepare the board</h2>
+  <p class="hint" style="margin-top:-4px">Available once an image is chosen in step 1.</p>
+  <div class="check"><input type="checkbox" id="confirm"><label for="confirm">I understand this erases the board's internal storage.</label></div>
+  <div class="btns"><button id="connectRock" class="primary" type="button" disabled>Connect</button><button id="writeBoot" type="button" disabled>Prepare the board and restart it</button></div>
+  <progress id="p1" max="1" value="0" hidden></progress><div class="status" id="s3status"></div>
+</section>
+
+<!-- 5 -->
+<section class="step" id="s4">
+  <h2><span class="n">5</span>Flash</h2>
+  <p class="hint" style="margin-top:-4px">The board restarts into fastboot (<code>18d1:4d00</code>). Press Connect and choose it. A board that is already in fastboot can be connected here directly. The flash takes a few minutes; keep the cable in and this tab open.</p>
+  <div class="btns"><button id="connectFb" class="primary" type="button">Connect</button><button id="flash" type="button" disabled>Flash</button></div>
+  <div class="status" id="phase"></div><progress id="p2" max="1" value="0" hidden></progress><div class="status" id="s4status"></div>
+</section>
+
+<details class="more"><summary>Log</summary>
+  <pre class="log" id="log" aria-live="polite">Nothing yet.</pre>
+</details>
+
+<footer>Unofficial: not made by, affiliated with or endorsed by Bobcat, Bobber or Helium. <a href="https://github.com/nmadd57/bobcat-reticulum-node">Source and documentation</a>. The same settings file can be made with <code>tools/make-config.py</code>.</footer>
 </div>
 
 <script src="config.js"></script>
@@ -483,7 +501,7 @@ $("writeBoot").addEventListener("click", async () => {
   try {
     if (!flashFat) { log("fetching the temporary boot partition"); const r = await fetch("flash/flashmode/fat.img"); if (!r.ok) throw new Error("could not load flash/flashmode/fat.img (" + r.status + ")"); flashFat = new Uint8Array(await r.arrayBuffer()); }
     await phaseDownloadMode({ rock, openStream, flashFat, log, progress: (p) => { $("p1").max = p.total; $("p1").value = p.done; } });
-    status("s3status", "Done. The board is restarting into fastboot.", "ok"); enable("s3", false); enable("s4", true);
+    status("s3status", "Done. The board is restarting into fastboot.", "ok"); enable("s3", false); enable("s4", true); try { $("s4").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
   } catch (err) { status("s3status", explain(err), "bad"); log("error: " + err.message); $("writeBoot").disabled = false; $("connectRock").disabled = false; }
 });
 
