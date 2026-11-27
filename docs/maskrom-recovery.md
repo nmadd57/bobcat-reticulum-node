@@ -10,12 +10,12 @@ damaged and the button cannot work.
 ## Recovery button: U-Boot download mode (preferred)
 
 The board has **Reset** and **Recovery** buttons next to its USB debug port. Holding Recovery while resetting
-makes the board's own U-Boot enter download mode and present the eMMC to a host over the **OTG** port.
+makes the board's own U-Boot enter download mode and present the eMMC to a host over the micro-USB port labelled **COM**.
 
 Verified on one unit:
 - U-Boot has the `rockusb` command, ADC-key support and messages "download key pressed" / "enter rockusb/bootrom
   download mode" (strings in the Armbian image's U-Boot).
-- With the OTG port connected to a host: hold **Recovery**, press and release **Reset**, release Recovery after
+- With the **COM** port connected to a host: hold **Recovery**, press and release **Reset**, release Recovery after
   about two seconds.
 - The host then sees `2207:350a`, `bcdDevice 0223`, product **"USB download gadget"** (Maskrom has no product
   string and `bcdDevice 0100`).

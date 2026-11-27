@@ -30,7 +30,7 @@ computer.
    You can save the form in a cookie (passwords only if you tick the box).
 2. Under **Flash over USB**, pick the image: the latest release of this project (the default), a file you
    already have, or a URL.
-3. Put the unit in recovery mode: power it, connect the micro-USB **OTG** port to your computer, hold **Recovery** and
+3. Put the unit in recovery mode: power it, connect the micro-USB port labelled **COM** (next to the LoRa connector) to your computer, hold **Recovery** and
    quickly press and release **Reset**, then let go of Recovery after about two seconds (the buttons can be reached
    through the slots in the case; photos and details: [`docs/recovery-mode.md`](docs/recovery-mode.md)). Press *Connect*
    and choose *USB download gadget* (a factory unit shows up without a name; that works too).

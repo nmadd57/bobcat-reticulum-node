@@ -175,7 +175,7 @@ details summary{cursor:pointer;font-weight:600}
 
 <section id="usb">
 <h2 style="font-size:1.25rem;margin:28px 0 6px">Or flash it over USB <small style="color:var(--mut);font-weight:500">(experimental)</small></h2>
-<p class="lead" style="margin:0 0 14px">Write the OS image straight to the unit's internal storage from this page over its OTG USB port, with the settings above already in place. No SD card. Needs Chrome or Edge. Tested against an emulated board and the same protocol by hand; this page has not yet flashed a real unit.</p>
+<p class="lead" style="margin:0 0 14px">Write the OS image straight to the unit's internal storage from this page over its micro-USB port labelled COM, with the settings above already in place. No SD card. Needs Chrome or Edge. Tested against an emulated board and the same protocol by hand; this page has not yet flashed a real unit.</p>
 <div id="unsupported" class="note" hidden></div>
 <div class="note"><strong>This erases the unit's internal storage.</strong> Use the <code>bobcat-g295-emmc.img.xz</code> image from the <a href="https://github.com/nmadd57/bobcat-reticulum-node/releases">releases</a>, not the standalone SD image.</div>
 <section class="card" id="s1">
@@ -191,7 +191,7 @@ details summary{cursor:pointer;font-weight:600}
 <section class="card off" id="s3">
   <h2>2. Put the board in download mode</h2>
   <ol style="margin:0 0 8px;padding-left:20px">
-    <li>Remove the SD card. Connect the board's <strong>OTG</strong> USB port to this computer.</li>
+    <li>Remove the SD card. Connect the board's micro-USB port labelled <strong>COM</strong> (next to the LoRa connector) to this computer.</li>
     <li>Hold <strong>Recovery</strong>, press and release <strong>Reset</strong>, then release Recovery after about two seconds (the buttons can be pressed through the slots in the side of the case; <a href="https://github.com/nmadd57/bobcat-reticulum-node/blob/main/docs/recovery-mode.md">photos and details</a>). A unit that still has the factory firmware stays in <em>Maskrom</em> (no product name): that is fine, the page sends it a loader first.</li>
     <li>Press <em>Connect</em> and choose <em>USB download gadget</em> (<code>2207:350a</code>).</li>
   </ol>

@@ -2,7 +2,7 @@
 
 How to get the unit into recovery mode (with photos): [`recovery-mode.md`](recovery-mode.md).
 
-How to write a whole OS image to the board's eMMC from a host computer over the OTG USB port, with no SD card.
+How to write a whole OS image to the board's eMMC from a host computer over the micro-USB port labelled COM, with no SD card.
 Developed and tested on one G295 (RK3566/RK3568, 58 GiB Samsung eMMC, U-Boot from the community Armbian image).
 
 **Status: worked on one unit** (flashed the eMMC image over USB, it booted and installed itself; settings seeding on top of
@@ -38,7 +38,7 @@ mode can write the small area where U-Boot looks for a boot script. So:
 1. **Build** the pieces: `tools/usb-flash/build-flashmode.sh` makes `boot.scr` (a compiled script that runs
    `ums 0 mmc 0`), an 8 MiB FAT12 `fat.img` holding it, and a `gpt.bin` whose only partition is that FAT at sector
    32768. Both fit inside the first 32 MiB.
-2. **Enter download mode** (Recovery + Reset, OTG port connected, **no SD card in the unit**: U-Boot checks the SD slot
+2. **Enter download mode** (Recovery + Reset, COM port connected, **no SD card in the unit**: U-Boot checks the SD slot
    first and would boot it).
 3. **Write** `gpt.bin` at sector 0 and `fat.img` at sector 32768 (`rkdeveloptool wl 0 gpt.bin`,
    `rkdeveloptool wl 32768 fat.img`) and read them back to check. Note `rkdeveloptool rl` takes its length in
