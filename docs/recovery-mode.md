@@ -13,9 +13,8 @@ You need:
 ## The steps
 
 1. **Power the unit.** Plug in the power adapter.
-2. **Connect the USB cable.** Plug the micro-USB cable into the unit's micro-USB port labelled **COM**, which is next to the
-   LoRa connector at the connector end of the case (it is not in the photos below), and the other end into your computer.
-   Other micro-USB ports on the board, such as the one visible in the photo below, are not used for this.
+2. **Connect the USB cable.** Plug the micro-USB cable into the unit's micro-USB port labelled **COM**, which is between the SD card
+   slot (TF) and the Ethernet jack at the connector end of the case (see the photo below), and the other end into your computer.
 3. **Hold the Recovery button** down. Keep holding it.
 4. **While still holding Recovery, quickly press and release Reset.**
 5. **Keep holding Recovery for about two seconds more**, then let go.
@@ -31,11 +30,10 @@ The buttons are two small tactile switches on the right-hand edge of the board *
 end of the case with the Ethernet, power and LoRa antenna connectors). **Reset** is the upper one and **Recovery** is the
 lower one, nearer the connectors.
 
-![The board with the cover off. Reset and Recovery are marked on the right-hand edge.](images/recovery-board-buttons.jpg)
+![The board with the cover off. Reset and Recovery are marked on the right-hand edge, and the COM micro-USB port at the bottom edge.](images/recovery-board-buttons.jpg)
 
 *The board with the cover off, connector end at the bottom. Reset and Recovery are on the right-hand edge. The micro-USB
-port you connect to is labelled **COM** and sits next to the LoRa connector; it is not in this photo. (The micro-USB port visible
-at the bottom edge, between the SD card slot and the Ethernet jack, is a different one.)*
+port you connect to is the one marked **COM**, at the bottom edge between the SD card slot (TF) and the Ethernet jack.*
 
 ### With the cover on
 
@@ -89,7 +87,7 @@ factory unit).
 ## If nothing shows up
 
 - Try a **different USB cable**. A charge-only cable is the most common cause.
-- Make sure the cable is in the micro-USB port labelled **COM** (next to the LoRa connector), and try a different USB port on the computer.
+- Make sure the cable is in the micro-USB port labelled **COM** (between the SD card slot and the Ethernet jack), and try a different USB port on the computer.
 - Repeat the steps with a firmer, more deliberate timing: Recovery held *before* Reset is pressed, and kept held for about two
   seconds *after* Reset is released.
 - **Power-cycle** the unit (unplug the power, wait five seconds, plug it back in) and start again from step 1.
