@@ -18,15 +18,15 @@ the node itself and joins your network with nothing typed on the device.
 
 ## Convert a Helium node
 
-### Web flasher (recommended): [bobcat.galaxyone.space](https://bobcat.galaxyone.space/)
+### Web flasher (recommended): [bobcat.build](https://bobcat.build/)
 
-The documentation is also published as web pages at [bobcat.galaxyone.space/docs](https://bobcat.galaxyone.space/docs/).
+The documentation is also published as web pages at [bobcat.build/docs](https://bobcat.build/docs/).
 
 One page makes your settings file and writes the OS image to the unit over USB. No SD card, no tools
 to install. It runs in your browser (**Chrome or Edge**); your settings and the image never leave your
 computer.
 
-1. Open **[bobcat.galaxyone.space](https://bobcat.galaxyone.space/)** and **choose the system image**: the latest release
+1. Open **[bobcat.build](https://bobcat.build/)** and **choose the system image**: the latest release
    of this project (the default), a file you already have, or a web address.
 2. **Set up the node** (optional): Wi-Fi (Ethernet DHCP is the default), hostname, SSH keys for root, a root password
    (hashed in your browser), optionally a second user with sudo, and the radio settings. You can remember the form in a

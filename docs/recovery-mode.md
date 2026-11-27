@@ -1,6 +1,6 @@
 # Putting a Bobcat 300 into recovery mode
 
-Recovery mode is how the [web flasher](https://bobcat.galaxyone.space/) (and `rkdeveloptool`) reaches the unit over USB.
+Recovery mode is how the [web flasher](https://bobcat.build/) (and `rkdeveloptool`) reaches the unit over USB.
 You do not need to open the case: the two buttons can be pressed through the slots in the side of it.
 
 You need:
