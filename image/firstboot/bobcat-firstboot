@@ -204,6 +204,7 @@ seed_config() {
 
     attach_side_file bobcat-authorized_keys authorized_keys SSH_AUTHORIZED_KEYS_FILE
     attach_side_file bobcat-reticulum.conf  reticulum.conf  RETICULUM_CONFIG_FILE
+    attach_side_file bobcat-wireguard.conf  wireguard.conf  WIREGUARD_CONFIG_FILE
     # A complete netplan file replaces the Wi-Fi/Ethernet settings, so it cannot
     # be combined with them.
     if [[ -n "$(locate bobcat-netplan.yaml)" ]] &&
@@ -245,9 +246,16 @@ touch "$DONE"
 # Do not leave secrets sitting in plain text on the FAT partition (readable from
 # any computer). The root-only copy under $SEED keeps them for re-runs.
 if [[ -n "$BOOT_CONF" && -w "$BOOT_CONF" ]] && ! grep -qE '^[[:space:]]*SCRUB_BOOT_CONF[[:space:]]*=[[:space:]]*(no|false|0|off)' "$BOOT_CONF" &&
-   grep -qE '^[[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE)[[:space:]]*=[^[:space:]]' "$BOOT_CONF"; then
-    sed -i -E 's/^([[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE)[[:space:]]*=).*/\1/' "$BOOT_CONF" &&
+   grep -qE '^[[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE|CLOUDFLARE_API_TOKEN|WIREGUARD_CONFIG_B64)[[:space:]]*=[^[:space:]]' "$BOOT_CONF"; then
+    sed -i -E 's/^([[:space:]]*(WIFI_PASS|IFAC_PASSPHRASE|CLOUDFLARE_API_TOKEN|WIREGUARD_CONFIG_B64)[[:space:]]*=).*/\1/' "$BOOT_CONF" &&
         echo "cleared passphrases in $BOOT_CONF"
+fi
+# A WireGuard config handed over as a file holds the private key too: blank it once it is installed.
+WG_SIDE="$(locate bobcat-wireguard.conf || true)"
+if [[ -n "$WG_SIDE" && -w "$WG_SIDE" && -s "$WG_SIDE" ]] && grep -qi 'PrivateKey' "$WG_SIDE" &&
+   ! { [[ -n "$BOOT_CONF" ]] && grep -qE '^[[:space:]]*SCRUB_BOOT_CONF[[:space:]]*=[[:space:]]*(no|false|0|off)' "$BOOT_CONF"; }; then
+    printf '# The WireGuard config was installed on the node (/etc/wireguard); its private key is not kept here.\n' > "$WG_SIDE" &&
+        echo "cleared the private key in $WG_SIDE"
 fi
 [[ "$SKIP_SYSTEM" == "1" ]] || systemctl disable bobcat-firstboot.service >/dev/null 2>&1 || true
 

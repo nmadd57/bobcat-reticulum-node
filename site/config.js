@@ -21,9 +21,60 @@
     sshKey: (v) => bad(/^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/=]+(\s.*)?$/, v) && "not a plain SSH public key line (options such as command= are not allowed)",
     userName: (v) => (bad(/^[a-z_][a-z0-9_-]{0,31}$/, v) || v === "root") && "lowercase letters, digits, - and _, starting with a letter or _ (not root)",
     hash: (v) => bad(/^\$(6|5|y)\$[^\s:]+\$[^\s:]+$/, v) && "a crypt hash such as $6$salt$hash",
+    domain: (v) => bad(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, v.toLowerCase()) && "a full domain name such as bobcat.example.com",
+    cfToken: (v) => bad(/^[A-Za-z0-9_-]{20,100}$/, v) && "that does not look like a Cloudflare API token (use one with the Zone / DNS / Edit permission)",
+    email: (v) => bad(/^[^@\s]+@[^@\s]+\.[^@\s]+$/, v) && "an email address",
     webuiHash: (v) => bad(/^(pbkdf2-sha256\$[0-9]{1,7}\$[0-9a-f]{2,}\$[0-9a-f]{2,}|scrypt\$[0-9]+\$[0-9]+\$[0-9]+\$[0-9a-f]+\$[0-9a-f]+)$/, v) && "a pbkdf2-sha256$... hash (type a password and the page makes one)",
     timezone: (v) => bad(/^[A-Za-z0-9_+\-]+(\/[A-Za-z0-9_+\-]+)*$/, v) && "a timezone name like Europe/Berlin",
   };
+
+  // A wg-quick config, checked as data (the same rules as the installer): no script hooks, only plain WireGuard settings.
+  function wireguardProblems(text) {
+    const problems = [], b64 = /^[A-Za-z0-9+/]{43}=$/, cidr = /^[0-9A-Fa-f:.]+\/[0-9]{1,3}$/;
+    let section = "", iface = 0, priv = false, addr = false, peers = 0, pub = false, allowed = false;
+    const problem = (m) => { if (!problems.includes(m)) problems.push(m); };
+    const peerDone = () => { if (section === "peer" && !(pub && allowed)) problem("every [Peer] needs a PublicKey and AllowedIPs"); };
+    if (text.length > 8192) problem("the config is larger than 8 KiB");
+    if (/[^\x20-\x7e\s]/.test(text)) problem("the config contains control or non-ASCII characters");
+    for (let raw of text.split(/\r?\n/)) {
+      const line = raw.replace(/#.*/, "").trim();
+      if (!line) continue;
+      const sec = /^\[([A-Za-z]+)\]$/.exec(line);
+      if (sec) {
+        peerDone();
+        const name = sec[1].toLowerCase();
+        if (name === "interface") { if (iface++) problem("only one [Interface] section is allowed"); section = "interface"; }
+        else if (name === "peer") { section = "peer"; peers++; pub = false; allowed = false; }
+        else { problem("unknown section [" + sec[1] + "]"); section = ""; }
+        continue;
+      }
+      const kv = /^([A-Za-z]+)\s*=\s*(.*)$/.exec(line);
+      if (!kv) { problem("not a 'Key = value' line: " + line.slice(0, 40)); continue; }
+      const key = kv[1].toLowerCase(), val = kv[2];
+      if (["preup", "postup", "predown", "postdown", "saveconfig"].includes(key)) { problem(kv[1] + " is not supported: script hooks would run commands as root (the settings are data, never code)"); continue; }
+      const num = (re, lo, hi) => re.test(val) && +val >= lo && +val <= hi;
+      switch (section + ":" + key) {
+        case "interface:privatekey": priv = true; if (!b64.test(val)) problem("PrivateKey is not a WireGuard key (44 characters of base64)"); break;
+        case "interface:address": addr = true; val.split(/[\s,]+/).filter(Boolean).forEach((i) => { if (!cidr.test(i)) problem("Address '" + i + "' must look like 10.0.0.2/24"); }); break;
+        case "interface:listenport": if (!num(/^\d+$/, 1, 65535)) problem("ListenPort must be 1-65535"); break;
+        case "interface:dns": if (!/^[A-Za-z0-9.:,\s-]+$/.test(val)) problem("DNS has odd characters"); break;
+        case "interface:mtu": if (!num(/^\d+$/, 576, 9000)) problem("MTU must be 576-9000"); break;
+        case "interface:table": if (!/^(off|auto|\d+)$/.test(val)) problem("Table must be off, auto or a number"); break;
+        case "interface:fwmark": if (!/^(off|0x[0-9a-fA-F]+|\d+)$/.test(val)) problem("FwMark must be off or a number"); break;
+        case "peer:publickey": pub = true; if (!b64.test(val)) problem("PublicKey is not a WireGuard key (44 characters of base64)"); break;
+        case "peer:presharedkey": if (!b64.test(val)) problem("PresharedKey is not a WireGuard key (44 characters of base64)"); break;
+        case "peer:allowedips": allowed = true; val.split(/[\s,]+/).filter(Boolean).forEach((i) => { if (!cidr.test(i)) problem("AllowedIPs '" + i + "' must look like 10.0.0.0/24"); }); break;
+        case "peer:endpoint": { const m = /^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):(\d{1,5})$/.exec(val); if (!m || +m[2] < 1 || +m[2] > 65535) problem("Endpoint must look like host:port"); break; }
+        case "peer:persistentkeepalive": if (!num(/^\d+$/, 0, 65535)) problem("PersistentKeepalive must be 0-65535"); break;
+        default: problem("'" + kv[1] + "' is not a setting this installer accepts in [" + (section || "no section") + "]");
+      }
+    }
+    peerDone();
+    if (!(iface && priv && addr)) problem("the config needs an [Interface] with a PrivateKey and an Address");
+    if (peers < 1) problem("the config needs at least one [Peer]");
+    return problems;
+  }
+  const toBase64 = (text) => (typeof btoa === "function" ? btoa(unescape(encodeURIComponent(text))) : Buffer.from(text, "utf8").toString("base64"));
 
   const SECTIONS = [
     ["Wi-Fi (this hardware: 2.4 GHz only)", ["WIFI_SSID", "WIFI_PASS", "WIFI_HIDDEN", "WIFI_OPEN"]],
@@ -31,7 +82,8 @@
     ["Operating system", ["HOSTNAME", "TIMEZONE", "SSH_AUTHORIZED_KEY", "SSH_GITHUB_USER", "ROOT_PASSWORD_HASH", "USER_NAME", "USER_PASSWORD_HASH", "USER_SSH_KEY", "USER_SSH_GITHUB_USER", "USER_SUDO", "SKIP_FIRSTLOGIN_WIZARD"]],
     ["Radio (must match the other nodes)", ["FREQUENCY", "BANDWIDTH", "SPREADINGFACTOR", "CODINGRATE", "TXPOWER"]],
     ["Reticulum", ["TRANSPORT", "INTERFACE_MODE", "IFAC_NETNAME", "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]],
-    ["Web interface", ["WEBUI", "WEBUI_PASSWORD_HASH", "WEBUI_PORT"]],
+    ["VPN (WireGuard)", ["WIREGUARD_CONFIG_B64", "WIREGUARD_INTERFACE"]],
+    ["Web interface", ["WEBUI", "WEBUI_PASSWORD_HASH", "WEBUI_PORT", "WEBUI_DOMAIN", "CLOUDFLARE_API_TOKEN", "ACME_EMAIL"]],
     ["Self-recovery", ["RESILIENCE", "NETWATCH_REBOOT_MINUTES"]],
   ];
 
@@ -90,7 +142,21 @@
       let pe = ""; if (t("webuiPort")) { pe = !isInt(t("webuiPort"), 1, 65535) ? "1 to 65535" : t("webuiPort") === t("tcpPort") ? "must differ from the Reticulum TCP port" : ""; need("webuiPort", pe, pe); }
       add("WEBUI", "yes");
       if (!h) add("WEBUI_PASSWORD_HASH", t("webuiHash"));
-      if (t("webuiPort") && !pe && t("webuiPort") !== "8443") add("WEBUI_PORT", t("webuiPort"));
+      if (t("webuiPort") && !pe && t("webuiPort") !== "443") add("WEBUI_PORT", t("webuiPort"));
+      if (t("webuiDomain") || t("webuiToken")) {
+        const de = !t("webuiDomain") ? "needed with the token" : checks.domain(t("webuiDomain")); need("webuiDomain", de, de);
+        const te = !t("webuiToken") ? "needed with the domain" : checks.cfToken(t("webuiToken")); need("webuiToken", te, te);
+        if (!de) add("WEBUI_DOMAIN", t("webuiDomain").toLowerCase());
+        if (!te) add("CLOUDFLARE_API_TOKEN", t("webuiToken"));
+      }
+      if (t("webuiEmail")) { const ee = checks.email(t("webuiEmail")); need("webuiEmail", ee, ee); if (!ee) add("ACME_EMAIL", t("webuiEmail")); }
+    }
+    if (t("wgConfig")) {
+      const text = (v.wgConfig || "").replace(/\r\n/g, "\n").trim() + "\n", probs = wireguardProblems(text);
+      need("wgConfig", probs.length, probs.slice(0, 2).join("; ") + (probs.length > 2 ? " (and " + (probs.length - 2) + " more)" : ""));
+      const ie = t("wgIface") && !/^[A-Za-z0-9_=+.-]{1,15}$/.test(t("wgIface")) ? "1-15 characters: letters, digits and _ = + . -" : ""; need("wgIface", ie, ie);
+      if (!probs.length) add("WIREGUARD_CONFIG_B64", toBase64(text));
+      if (t("wgIface") && !ie && t("wgIface") !== "wg0") add("WIREGUARD_INTERFACE", t("wgIface"));
     }
     if (v.skipWizard) add("SKIP_FIRSTLOGIN_WIZARD", "yes");
 
@@ -134,6 +200,6 @@
     return { text: out.join("\n"), errors, empty: items.length === 0 };
   }
 
-  const api = { build, checks, literal };
+  const api = { build, checks, literal, wireguardProblems };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.BobcatConfig = api;
 })(typeof window !== "undefined" ? window : globalThis);

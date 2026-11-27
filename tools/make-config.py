@@ -149,7 +149,8 @@ SECTIONS = [
                                             "TXPOWER", "PREAMBLE"]),
     ("Reticulum", ["TRANSPORT", "AUTOINTERFACE", "RNODE_FRAMING", "INTERFACE_MODE", "IFAC_NETNAME",
                    "IFAC_PASSPHRASE", "TCP_SERVER_PORT", "TCP_CLIENT"]),
-    ("Web interface", ["WEBUI", "WEBUI_PASSWORD_HASH", "WEBUI_PORT"]),
+    ("VPN (WireGuard)", ["WIREGUARD_CONFIG_B64", "WIREGUARD_INTERFACE"]),
+    ("Web interface", ["WEBUI", "WEBUI_PASSWORD_HASH", "WEBUI_PORT", "WEBUI_DOMAIN", "CLOUDFLARE_API_TOKEN", "ACME_EMAIL"]),
     ("Self-recovery", ["RESILIENCE", "NETWATCH_TARGET", "NETWATCH_REBOOT_MINUTES", "LOG_KEEP_DAYS", "LOG_MAX_MB"]),
     ("First boot", ["SCRUB_BOOT_CONF"]),
 ]
@@ -340,6 +341,25 @@ def find_public_keys():
     return sorted(ssh.glob("*.pub")) if ssh.is_dir() else []
 
 
+WG_HOOKS = ("preup", "postup", "predown", "postdown", "saveconfig")
+
+
+def check_wireguard(text):
+    """A light check (the installer checks everything): it must be a wg-quick config and must not run scripts."""
+    low = [l.split("#")[0].strip().lower() for l in text.splitlines()]
+    if any(l.split("=")[0].strip() in WG_HOOKS for l in low if "=" in l):
+        return "script hooks such as PostUp are not accepted: the settings are data, never code"
+    if "[interface]" not in low or "[peer]" not in low or not any(l.startswith("privatekey") for l in low):
+        return "that does not look like a WireGuard config (it needs [Interface] with a PrivateKey, and a [Peer])"
+    if len(text) > 8192:
+        return "that file is larger than 8 KiB"
+    return None
+
+
+def v_domain(v):
+    return None if re.fullmatch(r"([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", v) else "a full domain name such as bobcat.example.com"
+
+
 def pbkdf2_hash(password, iterations=200000):
     """pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>, the format the web interface and the installer accept."""
     salt = os.urandom(16)
@@ -492,6 +512,28 @@ def interview(a, s):
     if port:
         s.set("TCP_SERVER_PORT", port)
 
+    print("\n-- VPN (WireGuard)")
+    print("  The node can connect to a WireGuard VPN every time it boots, from the config file your VPN gives you")
+    print("  (the wg-quick format). The file holds a private key: it goes into the settings, and the node blanks it")
+    print("  on the boot partition after the install.")
+    if a.yes("Connect to a WireGuard VPN?"):
+        while True:
+            path = a.ask("  Path to the WireGuard config file", allow_empty=False)
+            try:
+                text = Path(path).expanduser().read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                print(f"  cannot read it: {exc}")
+                continue
+            problem = check_wireguard(text)
+            if problem:
+                print("  " + problem)
+                continue
+            s.set("WIREGUARD_CONFIG_B64", base64.b64encode(text.replace("\r\n", "\n").strip().encode() + b"\n").decode())
+            break
+        name = a.ask("  Interface name (Enter for wg0)", check=lambda v: None if not v or re.fullmatch(r"[A-Za-z0-9_=+.-]{1,15}", v) else "1-15 characters: letters, digits and _ = + . -")
+        if name and name != "wg0":
+            s.set("WIREGUARD_INTERFACE", name)
+
     print("\n-- Web interface (rnsd-webui)")
     print("  See the node's interfaces, paths and announces from a browser on your network, over HTTPS with a")
     print("  certificate the node makes itself (the browser warns once).")
@@ -499,9 +541,18 @@ def interview(a, s):
         s.set("WEBUI", "yes")
         pw = a.secret("  Web interface password (not shown)", lambda v: "at least 8 characters" if len(v) < 8 else None)
         s.set("WEBUI_PASSWORD_HASH", pbkdf2_hash(pw))
-        wp = a.ask("  Port (Enter for 8443)", check=v_int(1, 65535))
-        if wp and wp != "8443":
+        wp = a.ask("  Port (Enter for 443, the standard HTTPS port; plain http on 80 is redirected)", check=v_int(1, 65535))
+        if wp and wp != "443":
             s.set("WEBUI_PORT", wp)
+        print("  With a domain name in a Cloudflare zone and a Cloudflare API token (Zone, DNS, Edit) the node gets a")
+        print("  trusted Let's Encrypt certificate (DNS validation), so the browser does not warn. Without, it makes its own.")
+        if a.yes("  Get a trusted certificate?"):
+            dom = a.ask("    Domain name, e.g. bobcat.example.com", check=v_domain, allow_empty=False)
+            s.set("WEBUI_DOMAIN", dom.lower())
+            s.set("CLOUDFLARE_API_TOKEN", a.secret("    Cloudflare API token (not shown)", lambda v: None if re.fullmatch(r"[A-Za-z0-9_-]{20,100}", v) else "that does not look like a Cloudflare API token"))
+            mail = a.ask("    Contact email for Let's Encrypt (optional)", check=lambda v: None if not v or re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v) else "an email address")
+            if mail:
+                s.set("ACME_EMAIL", mail)
 
     print("\n-- Self-recovery")
     print("  Keeps logs across crashes, resets the board if it hangs, and restarts Wi-Fi (and finally")

@@ -30,7 +30,8 @@ computer.
    of this project (the default), a file you already have, or a web address.
 2. **Set up the node** (optional): Wi-Fi (Ethernet DHCP is the default), hostname, SSH keys for root, a root password
    (hashed in your browser), optionally a second user with sudo, the radio settings, and optionally the
-   [rnsd web interface](docs/web-interface.md) (a dashboard for the node, with its own password). You can remember the form in a
+   [rnsd web interface](docs/web-interface.md) (a dashboard for the node, with its own password, over HTTPS and optionally with a trusted
+   certificate through Cloudflare DNS), and optionally a [WireGuard VPN](docs/wireguard.md) the node joins at every boot. You can remember the form in a
    cookie (passwords only if you tick the box), or save the settings as a file for the SD card route below.
 3. **Put the unit in recovery mode**: power it, connect the micro-USB port labelled **COM** (next to the LoRa connector)
    to your computer, hold **Recovery** and quickly press and release **Reset**, then let go of Recovery after about two

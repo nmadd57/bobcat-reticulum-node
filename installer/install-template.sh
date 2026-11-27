@@ -51,9 +51,13 @@ OPT_TRANSPORT=1 OPT_AUTOIF=1 OPT_RNODE_FRAMING=1 OPT_IFMODE=""
 OPT_IFAC_NET="" OPT_IFAC_PASS="" OPT_IFAC_PASS_FILE=""
 OPT_RESILIENCE=1 OPT_NW_TARGET="" OPT_NW_REBOOT=20 OPT_LOG_DAYS=14 OPT_LOG_MB=100
 OPT_TCP_PORT="" OPT_TCP_CLIENTS=() OPT_RNS_CONFIG=""
-OPT_WEBUI=0 OPT_WEBUI_HASH="" OPT_WEBUI_PORT=8443
+OPT_WG_B64="" OPT_WG_FILE="" OPT_WG_IFACE=wg0 WG_TEXT=""
+WG_DIR="${BOBCAT_WG_DIR:-/etc/wireguard}"
+OPT_WEBUI=0 OPT_WEBUI_HASH="" OPT_WEBUI_PORT=443 OPT_WEBUI_DOMAIN="" OPT_CF_TOKEN="" OPT_ACME_EMAIL=""
+LE_DIR="${BOBCAT_LE_DIR:-/etc/letsencrypt}"
+ACME_SERVER="${BOBCAT_ACME_SERVER:-}"      # for tests or the Let's Encrypt staging server
 # The web interface comes from this release of github.com/nmadd57/rnsd-webui (override for tests or a mirror).
-WEBUI_REF="v0.1.1"
+WEBUI_REF="v0.1.2"
 WEBUI_SPEC="${BOBCAT_WEBUI_SPEC:-https://github.com/nmadd57/rnsd-webui/archive/refs/tags/$WEBUI_REF.tar.gz}"
 WEBUI_DIR="${BOBCAT_WEBUI_DIR:-/var/lib/rnsd-webui}"
 # Behaviour
@@ -106,9 +110,14 @@ Reticulum:
   --ifac-passphrase-file F   IFAC passphrase, first line of F
   --tcp-server-port N   also listen for Reticulum TCP links on port N (opens a port)
   --tcp-client HOST:PORT  also connect to a Reticulum TCP server (repeatable)
-  --webui               also install the rnsd web interface (HTTPS, self-signed certificate)
+  --webui               also install the rnsd web interface (HTTPS on port 443, plain HTTP redirected)
   --webui-password-hash H  its login password as a hash (pbkdf2-sha256$... or scrypt$...)
-  --webui-port N        its HTTPS port (default 8443)
+  --webui-port N        its HTTPS port (default 443)
+  --webui-domain NAME   a trusted certificate for this name from Let's Encrypt, validated through DNS
+  --cloudflare-token-file F  the Cloudflare API token (Zone:DNS:Edit) certbot uses for that, first line of F
+  --acme-email ADDR     contact address for Let's Encrypt (optional)
+  --wireguard-config F  connect to a WireGuard VPN at boot with this wg-quick config (no PostUp-style hooks)
+  --wireguard-interface NAME  its interface name (default wg0)
   --reticulum-config F  use F as /etc/reticulum/config instead of generating one
   --force-config        overwrite /etc/reticulum/config even if it was edited by hand
 
@@ -166,6 +175,56 @@ EOF
 # Config file parsing. The file is parsed, never executed; only known keys count.
 # ---------------------------------------------------------------------------
 
+# Check a wg-quick config as data. Prints one line per problem and returns 1 if there are any. Only plain WireGuard
+# settings are accepted: PreUp/PostUp/PreDown/PostDown run shell commands as root, and a settings file is never code.
+wg_problems() {
+    local text="$1" line key val lower section="" bad=0 iface_seen=0 priv=0 addr=0 peers=0 pub=0 allowed=0
+    local b64='^[A-Za-z0-9+/]{43}=$' cidr='^[0-9A-Fa-f:.]+/[0-9]{1,3}$' item
+    problem() { echo "$1"; bad=1; }
+    peer_done() { [[ "$section" != peer ]] || { [[ "$pub" -eq 1 && "$allowed" -eq 1 ]] || problem "every [Peer] needs a PublicKey and AllowedIPs"; }; }
+    [[ "${#text}" -le 8192 ]] || problem "the WireGuard config is larger than 8 KiB"
+    LC_ALL=C grep -q '[^[:print:][:space:]]' <<<"$text" && problem "the WireGuard config contains control or non-ASCII characters"
+    while IFS= read -r line; do
+        line="${line%$'\r'}"; line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] || continue
+        if [[ "$line" =~ ^\[([A-Za-z]+)\]$ ]]; then
+            peer_done
+            lower="${BASH_REMATCH[1],,}"
+            case "$lower" in
+                interface) [[ "$iface_seen" -eq 0 ]] || problem "only one [Interface] section is allowed"; iface_seen=1; section=interface ;;
+                peer) section=peer; peers=$((peers + 1)); pub=0; allowed=0 ;;
+                *) problem "unknown section [${BASH_REMATCH[1]}]"; section="" ;;
+            esac
+            continue
+        fi
+        if [[ ! "$line" =~ ^([A-Za-z]+)[[:space:]]*=[[:space:]]*(.*)$ ]]; then problem "not a 'Key = value' line: ${line:0:40}"; continue; fi
+        key="${BASH_REMATCH[1],,}"; val="${BASH_REMATCH[2]}"
+        case "$key" in
+            preup|postup|predown|postdown|saveconfig) problem "$key is not supported: script hooks would run commands as root (the settings are data, never code)"; continue ;;
+        esac
+        case "$section:$key" in
+            interface:privatekey) priv=1; [[ "$val" =~ $b64 ]] || problem "PrivateKey is not a WireGuard key (44 characters of base64)" ;;
+            interface:address) addr=1; for item in ${val//,/ }; do [[ "$item" =~ $cidr ]] || problem "Address '$item' must look like 10.0.0.2/24"; done ;;
+            interface:listenport) [[ "$val" =~ ^[0-9]+$ ]] && ((val >= 1 && val <= 65535)) || problem "ListenPort must be 1-65535" ;;
+            interface:dns) [[ "$val" =~ ^[A-Za-z0-9.:,[:space:]-]+$ ]] || problem "DNS has odd characters" ;;
+            interface:mtu) [[ "$val" =~ ^[0-9]+$ ]] && ((val >= 576 && val <= 9000)) || problem "MTU must be 576-9000" ;;
+            interface:table) [[ "$val" =~ ^(off|auto|[0-9]+)$ ]] || problem "Table must be off, auto or a number" ;;
+            interface:fwmark) [[ "$val" =~ ^(off|0x[0-9a-fA-F]+|[0-9]+)$ ]] || problem "FwMark must be off or a number" ;;
+            peer:publickey) pub=1; [[ "$val" =~ $b64 ]] || problem "PublicKey is not a WireGuard key (44 characters of base64)" ;;
+            peer:presharedkey) [[ "$val" =~ $b64 ]] || problem "PresharedKey is not a WireGuard key (44 characters of base64)" ;;
+            peer:allowedips) allowed=1; for item in ${val//,/ }; do [[ "$item" =~ $cidr ]] || problem "AllowedIPs '$item' must look like 10.0.0.0/24"; done ;;
+            peer:endpoint) [[ "$val" =~ ^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$ ]] && ((${val##*:} >= 1 && ${val##*:} <= 65535)) || problem "Endpoint must look like host:port" ;;
+            peer:persistentkeepalive) [[ "$val" =~ ^[0-9]+$ ]] && ((val <= 65535)) || problem "PersistentKeepalive must be 0-65535" ;;
+            *) problem "'$key' is not a setting this installer accepts in [${section:-no section}]" ;;
+        esac
+    done <<<"$text"
+    peer_done
+    [[ "$iface_seen" -eq 1 && "$priv" -eq 1 && "$addr" -eq 1 ]] || problem "the config needs an [Interface] with a PrivateKey and an Address"
+    [[ "$peers" -ge 1 ]] || problem "the config needs at least one [Peer]"
+    return "$bad"
+}
+
 to_bool() {
     case "${1,,}" in
         1|yes|true|on)  echo 1 ;;
@@ -220,6 +279,12 @@ apply_config_key() {
         WEBUI)                OPT_WEBUI="$(to_bool "$val")" ;;
         WEBUI_PASSWORD_HASH)  OPT_WEBUI_HASH="$val" ;;
         WEBUI_PORT)           OPT_WEBUI_PORT="$val" ;;
+        WEBUI_DOMAIN)         OPT_WEBUI_DOMAIN="${val,,}" ;;
+        CLOUDFLARE_API_TOKEN) OPT_CF_TOKEN="$val" ;;
+        ACME_EMAIL)           OPT_ACME_EMAIL="$val" ;;
+        WIREGUARD_CONFIG_B64) OPT_WG_B64="$val" ;;
+        WIREGUARD_CONFIG_FILE) OPT_WG_FILE="$(abs_path "$val" "$base")" ;;
+        WIREGUARD_INTERFACE)  OPT_WG_IFACE="$val" ;;
         TCP_CLIENT)           [[ -z "$val" ]] || OPT_TCP_CLIENTS+=("$val") ;;
         RETICULUM_CONFIG_FILE) OPT_RNS_CONFIG="$(abs_path "$val" "$base")" ;;
         RESILIENCE)           OPT_RESILIENCE="$(to_bool "$val")" ;;
@@ -286,6 +351,11 @@ while [[ $# -gt 0 ]]; do
         --webui)           OPT_WEBUI=1; shift ;;
         --webui-password-hash) need "$@"; OPT_WEBUI_HASH="$2"; shift 2 ;;
         --webui-port)      need "$@"; OPT_WEBUI_PORT="$2"; shift 2 ;;
+        --webui-domain)    need "$@"; OPT_WEBUI_DOMAIN="${2,,}"; shift 2 ;;
+        --cloudflare-token-file) need "$@"; OPT_CF_TOKEN_FILE="$2"; shift 2 ;;
+        --acme-email)      need "$@"; OPT_ACME_EMAIL="$2"; shift 2 ;;
+        --wireguard-config) need "$@"; OPT_WG_FILE="$2"; shift 2 ;;
+        --wireguard-interface) need "$@"; OPT_WG_IFACE="$2"; shift 2 ;;
         --tcp-client)      need "$@"; OPT_TCP_CLIENTS+=("$2"); shift 2 ;;
         --reticulum-config) need "$@"; OPT_RNS_CONFIG="$2"; shift 2 ;;
         --force-config)    OPT_FORCE_CONFIG=1; shift ;;
@@ -381,9 +451,33 @@ validate_options() {
         [[ "$OPT_WEBUI_PORT" =~ ^[0-9]+$ ]] && ((OPT_WEBUI_PORT >= 1 && OPT_WEBUI_PORT <= 65535)) ||
             fail "WEBUI_PORT must be 1-65535"
         [[ "$OPT_WEBUI_PORT" != "$OPT_TCP_PORT" ]] || fail "WEBUI_PORT and TCP_SERVER_PORT must differ"
-    elif [[ -n "$OPT_WEBUI_HASH" ]]; then
-        fail "WEBUI_PASSWORD_HASH needs WEBUI=yes"
+    elif [[ -n "$OPT_WEBUI_HASH$OPT_WEBUI_DOMAIN$OPT_CF_TOKEN" ]]; then
+        fail "WEBUI_PASSWORD_HASH, WEBUI_DOMAIN and CLOUDFLARE_API_TOKEN need WEBUI=yes"
     fi
+    if [[ -n "${OPT_CF_TOKEN_FILE:-}" ]]; then
+        [[ -r "$OPT_CF_TOKEN_FILE" ]] || fail "cannot read Cloudflare token file $OPT_CF_TOKEN_FILE"
+        OPT_CF_TOKEN="$(head -n1 "$OPT_CF_TOKEN_FILE" | tr -d '\r\n')"
+    fi
+    if [[ -n "$OPT_WEBUI_DOMAIN$OPT_CF_TOKEN" ]]; then
+        [[ -n "$OPT_WEBUI_DOMAIN" && -n "$OPT_CF_TOKEN" ]] || fail "a trusted certificate needs both WEBUI_DOMAIN and CLOUDFLARE_API_TOKEN"
+        [[ "$OPT_WEBUI_DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] ||
+            fail "WEBUI_DOMAIN must be a full domain name such as bobcat.example.com"
+        [[ "$OPT_CF_TOKEN" =~ ^[A-Za-z0-9_-]{20,100}$ ]] ||
+            fail "CLOUDFLARE_API_TOKEN does not look like a Cloudflare API token (create one with the Zone:DNS:Edit permission)"
+    fi
+    if [[ -n "$OPT_WG_B64" && -n "$OPT_WG_FILE" ]]; then fail "give the WireGuard config once: WIREGUARD_CONFIG_B64 or WIREGUARD_CONFIG_FILE, not both"; fi
+    if [[ -n "$OPT_WG_B64" ]]; then
+        [[ "$OPT_WG_B64" =~ ^[A-Za-z0-9+/=]+$ ]] || fail "WIREGUARD_CONFIG_B64 is not base64"
+        WG_TEXT="$(printf '%s' "$OPT_WG_B64" | base64 -d 2>/dev/null)" || fail "WIREGUARD_CONFIG_B64 is not valid base64"
+    elif [[ -n "$OPT_WG_FILE" ]]; then
+        [[ -r "$OPT_WG_FILE" ]] || fail "cannot read WireGuard config file $OPT_WG_FILE"
+        WG_TEXT="$(tr -d '\r' < "$OPT_WG_FILE")"
+    fi
+    [[ "$OPT_WG_IFACE" =~ ^[A-Za-z0-9_=+.-]{1,15}$ ]] || fail "the WireGuard interface name must be 1-15 characters (letters, digits, _ = + . -)"
+    if [[ -n "$WG_TEXT" ]]; then
+        wg_msgs="$(wg_problems "$WG_TEXT")" || fail "WireGuard config: $(head -n1 <<<"$wg_msgs")$([[ "$(wc -l <<<"$wg_msgs")" -gt 1 ]] && echo " (and $(($(wc -l <<<"$wg_msgs") - 1)) more)")"
+    fi
+    [[ -z "$OPT_ACME_EMAIL" || "$OPT_ACME_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "ACME_EMAIL is not an email address"
     [[ -z "$OPT_WEBUI_HASH" || "$OPT_WEBUI_HASH" =~ ^(pbkdf2-sha256\$[0-9]{1,7}\$[0-9a-f]{2,}\$[0-9a-f]{2,}|scrypt\$[0-9]+\$[0-9]+\$[0-9]+\$[0-9a-f]+\$[0-9a-f]+)$ ]] ||
         fail "WEBUI_PASSWORD_HASH must be a pbkdf2-sha256\$... or scrypt\$... hash (the web page makes one), not a password"
     for value in "${OPT_TCP_CLIENTS[@]+"${OPT_TCP_CLIENTS[@]}"}"; do
@@ -544,7 +638,7 @@ preflight() {
 # ---------------------------------------------------------------------------
 
 mask_secrets() {
-    sed -E 's/((password|passphrase|pass_phrase|psk|key|hash)[a-z_-]*[[:space:]]*[:=][[:space:]]*).*/\1<hidden>/I'
+    sed -E 's/((password|passphrase|pass_phrase|psk|key|hash|token|b64)[a-z_0-9-]*[[:space:]]*[:=][[:space:]]*).*/\1<hidden>/I'
 }
 
 net_ok() {
@@ -955,6 +1049,11 @@ missing_packages() {
     python3 -c 'import venv, ensurepip' >/dev/null 2>&1 || echo python3-venv
     python3 -m pip --version >/dev/null 2>&1 || echo python3-pip
     if [[ "$OPT_WEBUI" -eq 1 ]]; then have openssl || echo openssl; fi
+    if [[ -n "$WG_TEXT" ]]; then have wg-quick || echo wireguard-tools; fi
+    if [[ -n "$OPT_WEBUI_DOMAIN" ]]; then
+        have certbot || echo certbot
+        dpkg -s python3-certbot-dns-cloudflare >/dev/null 2>&1 || echo python3-certbot-dns-cloudflare
+    fi
 }
 
 # Is Reticulum installed in the venv, and is this code directory registered as the
@@ -1343,9 +1442,24 @@ verify() {
 # Keep a copy of the settings on the installed system
 # ---------------------------------------------------------------------------
 
-# The rnsd web interface (github.com/nmadd57/rnsd-webui): installed into the same venv, served over HTTPS with a
-# certificate made here (self-signed: the browser warns once), signed in with the password hash from the settings.
+# The rnsd web interface (github.com/nmadd57/rnsd-webui): installed into the same venv and served over HTTPS (port 443 by
+# default, with plain HTTP on port 80 redirecting to it). Its certificate is either a trusted Let's Encrypt one, made with a
+# Cloudflare DNS token for WEBUI_DOMAIN (certbot, renewed by its own timer), or, without those, one made here for the
+# hostname (self-signed: the browser warns once). The login password comes from the hash in the settings.
+
+# Where the certificate is: the Let's Encrypt one when there is one for the domain, else the self-signed one.
+webui_cert_paths() {
+    if [[ -n "$OPT_WEBUI_DOMAIN" && -s "$LE_DIR/live/$OPT_WEBUI_DOMAIN/fullchain.pem" && -s "$LE_DIR/live/$OPT_WEBUI_DOMAIN/privkey.pem" ]]; then
+        WEBUI_CERT="$LE_DIR/live/$OPT_WEBUI_DOMAIN/fullchain.pem"; WEBUI_KEY="$LE_DIR/live/$OPT_WEBUI_DOMAIN/privkey.pem"; WEBUI_TRUSTED=1
+    else
+        WEBUI_CERT="$WEBUI_DIR/tls/cert.pem"; WEBUI_KEY="$WEBUI_DIR/tls/key.pem"; WEBUI_TRUSTED=0
+    fi
+}
+
 render_webui_unit() {
+    webui_cert_paths
+    local redirect=""
+    [[ "$OPT_WEBUI_PORT" -ne 443 ]] || redirect=" --http-redirect 80"
     cat <<EOF
 [Unit]
 Description=Web interface for rnsd (rnsd-webui)
@@ -1355,7 +1469,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$PREFIX/venv/bin/rnsd-webui --listen 0.0.0.0:$OPT_WEBUI_PORT --rns-config $CONFIGDIR --data-dir $WEBUI_DIR --tls-cert $WEBUI_DIR/tls/cert.pem --tls-key $WEBUI_DIR/tls/key.pem
+ExecStart=$PREFIX/venv/bin/rnsd-webui --listen 0.0.0.0:$OPT_WEBUI_PORT --rns-config $CONFIGDIR --data-dir $WEBUI_DIR --tls-cert $WEBUI_CERT --tls-key $WEBUI_KEY$redirect
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=yes
@@ -1375,19 +1489,52 @@ WantedBy=multi-user.target
 EOF
 }
 
+# Ask Let's Encrypt for a certificate for WEBUI_DOMAIN, proving control of the name through a TXT record that certbot
+# adds with the Cloudflare token (DNS-01: nothing has to be reachable from the internet). Returns 1 on failure.
+webui_acme() {
+    local cred="$LE_DIR/cloudflare-rnsd-webui.ini" args=()
+    install -d -m 755 "$LE_DIR"
+    ( umask 077; printf '# Cloudflare API token for certbot (Zone:DNS:Edit)\ndns_cloudflare_api_token = %s\n' "$OPT_CF_TOKEN" > "$cred" )
+    chmod 600 "$cred"
+    args=(certonly --non-interactive --agree-tos --cert-name "$OPT_WEBUI_DOMAIN" -d "$OPT_WEBUI_DOMAIN"
+          --dns-cloudflare --dns-cloudflare-credentials "$cred" --dns-cloudflare-propagation-seconds 30)
+    if [[ -n "$OPT_ACME_EMAIL" ]]; then args+=(--email "$OPT_ACME_EMAIL"); else args+=(--register-unsafely-without-email); fi
+    [[ -z "$ACME_SERVER" ]] || args+=(--server "$ACME_SERVER")
+    note "asking Let's Encrypt for a certificate for $OPT_WEBUI_DOMAIN (DNS validation through Cloudflare)"
+    if ! certbot "${args[@]}" >/tmp/bobcat-certbot.log 2>&1; then
+        tail -8 /tmp/bobcat-certbot.log >&2
+        return 1
+    fi
+    # certbot renews on its own timer; the web interface only reads the certificate when it starts.
+    install -d -m 755 "$LE_DIR/renewal-hooks/deploy"
+    printf '#!/bin/sh\n# Pick up the renewed certificate.\nsystemctl restart rnsd-webui >/dev/null 2>&1 || true\n' > "$LE_DIR/renewal-hooks/deploy/rnsd-webui"
+    chmod 755 "$LE_DIR/renewal-hooks/deploy/rnsd-webui"
+    systemctl enable --now certbot.timer >/dev/null 2>&1 || true
+    return 0
+}
+
+webui_self_signed() {
+    [[ -s "$WEBUI_DIR/tls/cert.pem" && -s "$WEBUI_DIR/tls/key.pem" ]] && return 0
+    local host san; host="$(hostname)"
+    san="DNS:$host,DNS:$host.local"; [[ -z "$OPT_WEBUI_DOMAIN" ]] || san="$san,DNS:$OPT_WEBUI_DOMAIN"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=${OPT_WEBUI_DOMAIN:-$host}" -addext "subjectAltName=$san" \
+        -keyout "$WEBUI_DIR/tls/key.pem" -out "$WEBUI_DIR/tls/cert.pem" >/dev/null 2>&1 || fail "could not make the web interface's certificate"
+    chmod 600 "$WEBUI_DIR/tls/key.pem"
+    note "certificate made for ${OPT_WEBUI_DOMAIN:-$host} (self-signed, valid 10 years)"
+}
+
 install_webui() {
     [[ "$OPT_WEBUI" -eq 1 ]] || return 0
     log "Web interface"
     "$PREFIX/venv/bin/pip" install --quiet "$WEBUI_SPEC" || fail "could not install rnsd-webui from $WEBUI_SPEC"
     install -d -m 700 "$WEBUI_DIR" "$WEBUI_DIR/tls"
 
-    if [[ ! -s "$WEBUI_DIR/tls/cert.pem" || ! -s "$WEBUI_DIR/tls/key.pem" ]]; then
-        local host; host="$(hostname)"
-        openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$host" -addext "subjectAltName=DNS:$host,DNS:$host.local" \
-            -keyout "$WEBUI_DIR/tls/key.pem" -out "$WEBUI_DIR/tls/cert.pem" >/dev/null 2>&1 || fail "could not make the web interface's certificate"
-        chmod 600 "$WEBUI_DIR/tls/key.pem"
-        note "certificate made for $host (self-signed, valid 10 years)"
+    if [[ -n "$OPT_WEBUI_DOMAIN" ]]; then
+        webui_acme || warn "no certificate from Let's Encrypt (details above); using a self-signed one instead. Check the Cloudflare token and that $OPT_WEBUI_DOMAIN is a name in that account, then re-run the installer"
     fi
+    webui_cert_paths
+    [[ "$WEBUI_TRUSTED" -eq 1 ]] || webui_self_signed
+    webui_cert_paths
 
     printf '%s\n' "$OPT_WEBUI_HASH" | "$PREFIX/venv/bin/rnsd-webui" set-hash --data-dir "$WEBUI_DIR" >/dev/null ||
         fail "could not store the web interface password"
@@ -1406,8 +1553,14 @@ PY
             then up=1; break; fi
             sleep 1
         done
+        local where="${OPT_WEBUI_DOMAIN:-$(hostname)}" suffix=""
+        [[ "$OPT_WEBUI_PORT" -eq 443 ]] || suffix=":$OPT_WEBUI_PORT"
         if [[ "$up" -eq 1 ]]; then
-            note "web interface: https://$(hostname):$OPT_WEBUI_PORT/ (self-signed certificate: the browser warns once)"
+            if [[ "$WEBUI_TRUSTED" -eq 1 ]]; then
+                note "web interface: https://$where$suffix/ (trusted certificate; point a DNS record for $where at this node: $(hostname -I 2>/dev/null | awk '{print $1}'))"
+            else
+                note "web interface: https://$where$suffix/ (self-signed certificate: the browser warns once)"
+            fi
         else
             warn "the web interface did not answer (see: journalctl -u rnsd-webui -n 30)"
         fi
@@ -1415,6 +1568,52 @@ PY
         note "installed, not started (--no-start)"
     fi
 }
+
+# ---------------------------------------------------------------------------
+# WireGuard (optional): a wg-quick style config, started at boot as wg-quick@<interface>
+# ---------------------------------------------------------------------------
+
+install_wireguard() {
+    [[ -n "$WG_TEXT" ]] || return 0
+    log "WireGuard ($OPT_WG_IFACE)"
+    local conf="$WG_DIR/$OPT_WG_IFACE.conf" tmp="/tmp/bobcat-wg-$$"
+    install -d -m 700 "$WG_DIR"
+    # wg-quick sets the tunnel's DNS through resolvconf; without it a DNS line makes wg-quick fail, so leave that line out
+    if grep -qiE '^[[:space:]]*DNS[[:space:]]*=' <<<"$WG_TEXT" && ! have resolvconf; then
+        WG_TEXT="$(sed -E 's/^([[:space:]]*DNS[[:space:]]*=.*)$/# \1  (left out by the installer: no resolvconf on this system)/I' <<<"$WG_TEXT")"
+        warn "the config's DNS line is left out: this system has no resolvconf for wg-quick to use"
+    fi
+    ( umask 077; printf '%s\n' "$WG_TEXT" > "$tmp" )
+    install -m 600 "$tmp" "$conf"; rm -f "$tmp"
+    note "config installed as $conf (root only)"
+    if grep -qiE '^[[:space:]]*AllowedIPs[[:space:]]*=.*(0\.0\.0\.0/0|::/0)' <<<"$WG_TEXT"; then
+        warn "AllowedIPs sends all traffic through the tunnel; if the endpoint is unreachable, so is this node"
+    fi
+
+    if ! ip link add "wgtest$$" type wireguard >/dev/null 2>&1; then
+        modprobe wireguard >/dev/null 2>&1 || true
+        if ! ip link add "wgtest$$" type wireguard >/dev/null 2>&1; then
+            warn "this kernel cannot create WireGuard interfaces (no wireguard module); the config is installed but the tunnel cannot start"
+        fi
+    fi
+    ip link del "wgtest$$" >/dev/null 2>&1 || true
+
+    systemctl daemon-reload
+    systemctl enable "wg-quick@$OPT_WG_IFACE" >/dev/null 2>&1 || warn "could not enable wg-quick@$OPT_WG_IFACE"
+    if [[ "$OPT_START" -eq 1 ]]; then
+        systemctl restart "wg-quick@$OPT_WG_IFACE" >/dev/null 2>&1 || { warn "wg-quick@$OPT_WG_IFACE did not start (see: journalctl -u wg-quick@$OPT_WG_IFACE -n 20)"; return 0; }
+        local i hs=0
+        for i in $(seq 1 15); do
+            if wg show "$OPT_WG_IFACE" latest-handshakes 2>/dev/null | awk '$2 > 0 { found = 1 } END { exit !found }'; then hs=1; break; fi
+            sleep 1
+        done
+        if [[ "$hs" -eq 1 ]]; then note "tunnel up: a handshake with the peer completed"
+        else note "tunnel configured and started; no handshake yet (one happens when traffic first flows; check the endpoint and keys if it never does)"; fi
+    else
+        note "installed, not started (--no-start)"
+    fi
+}
+
 
 persist_config() {
     [[ -n "$OPT_CONFIG" ]] || return 0
@@ -1429,7 +1628,7 @@ persist_config() {
 
     # Files the config points to are copied too, and the copy's paths rewritten.
     for pair in "NETPLAN_FILE:$OPT_NETPLAN_FILE" "SSH_AUTHORIZED_KEYS_FILE:$OPT_SSH_KEYS_FILE" \
-                "RETICULUM_CONFIG_FILE:$OPT_RNS_CONFIG"; do
+                "RETICULUM_CONFIG_FILE:$OPT_RNS_CONFIG" "WIREGUARD_CONFIG_FILE:$OPT_WG_FILE"; do
         key="${pair%%:*}"
         path="${pair#*:}"
         [[ -n "$path" && "$path" != "-" && -r "$path" ]] || continue
@@ -1468,7 +1667,17 @@ print_plan() {
     echo "interface mode: ${OPT_IFMODE:-default}"
     echo "IFAC:          ${OPT_IFAC_NET:+network name set }$([[ -n $OPT_IFAC_PASS ]] && echo 'passphrase set')$([[ -z $OPT_IFAC_NET$OPT_IFAC_PASS ]] && echo none)"
     echo "tcp server:    ${OPT_TCP_PORT:-none}"
-    echo "web interface: $([[ $OPT_WEBUI -eq 1 ]] && echo "yes (rnsd-webui $WEBUI_REF, https on port $OPT_WEBUI_PORT, password from the hash)" || echo no)"
+    echo "web interface: $([[ $OPT_WEBUI -eq 1 ]] && echo "yes (rnsd-webui $WEBUI_REF, https on port $OPT_WEBUI_PORT$([[ $OPT_WEBUI_PORT -eq 443 ]] && echo ', http on 80 redirects'), password from the hash)" || echo no)"
+    if [[ -n "$WG_TEXT" ]]; then
+        echo "vpn:           WireGuard $OPT_WG_IFACE, started at boot ($(grep -ciE '^[[:space:]]*\[Peer\]' <<<"$WG_TEXT") peer(s)$(grep -qiE '^[[:space:]]*AllowedIPs[[:space:]]*=.*(0\.0\.0\.0/0|::/0)' <<<"$WG_TEXT" && echo ', all traffic through the tunnel'), keys not shown)"
+    else
+        echo "vpn:           none"
+    fi
+    if [[ -n "$OPT_WEBUI_DOMAIN" ]]; then
+        echo "  certificate: Let's Encrypt for $OPT_WEBUI_DOMAIN, DNS validation through Cloudflare (token set${OPT_ACME_EMAIL:+, contact $OPT_ACME_EMAIL})"
+    elif [[ $OPT_WEBUI -eq 1 ]]; then
+        echo "  certificate: self-signed, made on the node"
+    fi
     for client in "${OPT_TCP_CLIENTS[@]+"${OPT_TCP_CLIENTS[@]}"}"; do echo "tcp client:    $client"; done
     echo "own config:    ${OPT_RNS_CONFIG:-none (one is generated)}"
     echo
@@ -1542,6 +1751,7 @@ main() {
     write_config
     install_service
     install_webui
+    install_wireguard
     setup_resilience
     persist_config
     local ok=0

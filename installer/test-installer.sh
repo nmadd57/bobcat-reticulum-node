@@ -173,7 +173,8 @@ has   "user: none by default" "extra user:    none" "$OUT"
 WH='pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899'
 plan --webui --webui-password-hash "$WH"
 has   "webui: announced with the release and the default port" "web interface: yes (rnsd-webui v" "$OUT"
-has   "webui: default port 8443" "https on port 8443" "$OUT"
+has   "webui: default port 443 with the http redirect" "https on port 443, http on 80 redirects" "$OUT"
+has   "webui: self-signed by default" "certificate: self-signed" "$OUT"
 hasnt "webui: the hash is never printed" "aabbccddeeff00112233" "$OUT"
 plan --webui --webui-password-hash "$WH" --webui-port 9443
 has   "webui: a chosen port" "https on port 9443" "$OUT"
@@ -185,10 +186,75 @@ has   "webui: off by default" "web interface: no" "$OUT"
 plan_ok "webui: scrypt hashes are accepted too" --webui --webui-password-hash 'scrypt$16384$8$1$00ff$aabb'
 plan_fail "reject: webui without a password hash" "needs WEBUI_PASSWORD_HASH" --webui
 plan_fail "reject: webui password given as plain text" "not a password" --webui --webui-password-hash hunter2
-plan_fail "reject: a webui hash without the webui" "needs WEBUI=yes" --webui-password-hash "$WH"
+plan_fail "reject: a webui hash without the webui" "need WEBUI=yes" --webui-password-hash "$WH"
 plan_fail "reject: webui port out of range" "WEBUI_PORT must be" --webui --webui-password-hash "$WH" --webui-port 70000
 plan_fail "reject: webui port equal to the Reticulum TCP port" "must differ" --webui --webui-password-hash "$WH" --webui-port 4242 --tcp-server-port 4242
 
+
+
+CFT='abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+printf '%s\n' "$CFT" > "$T/cf.token"
+plan --webui --webui-password-hash "$WH" --webui-domain Node.Example.com --cloudflare-token-file "$T/cf.token" --acme-email me@example.com
+has   "webui domain: Let's Encrypt for the (lowercased) name through Cloudflare" "Let's Encrypt for node.example.com, DNS validation through Cloudflare (token set, contact me@example.com)" "$OUT"
+hasnt "webui domain: the token is never printed" "abcdefghijklmnop" "$OUT"
+printf 'WEBUI=yes\nWEBUI_PASSWORD_HASH=%s\nWEBUI_DOMAIN=node.example.com\nCLOUDFLARE_API_TOKEN=%s\n' "$WH" "$CFT" > "$T/webui2.conf"
+plan --config "$T/webui2.conf"
+has   "webui domain: the settings file keys work" "Let's Encrypt for node.example.com" "$OUT"
+plan_fail "reject: a domain without a token" "needs both WEBUI_DOMAIN and CLOUDFLARE_API_TOKEN" --webui --webui-password-hash "$WH" --webui-domain node.example.com
+plan_fail "reject: a token without a domain" "needs both WEBUI_DOMAIN and CLOUDFLARE_API_TOKEN" --webui --webui-password-hash "$WH" --cloudflare-token-file "$T/cf.token"
+plan_fail "reject: a domain that is not a full name" "must be a full domain name" --webui --webui-password-hash "$WH" --webui-domain bobcat --cloudflare-token-file "$T/cf.token"
+printf 'short\n' > "$T/cf.bad"
+plan_fail "reject: something that is not a Cloudflare token" "does not look like a Cloudflare API token" --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.bad"
+plan_fail "reject: a bad contact address" "ACME_EMAIL is not an email address" --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token" --acme-email nope
+plan_fail "reject: a domain without the web interface" "need WEBUI=yes" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token"
+plan_fail "reject: a missing token file" "cannot read Cloudflare token file" --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file /nonexistent
+
+
+# ------------------------------------------------------------------- WireGuard
+WGK="$(head -c 32 /dev/urandom | base64)"; WGP="$(head -c 32 /dev/urandom | base64)"; WGS="$(head -c 32 /dev/urandom | base64)"
+wgconf() { printf '[Interface]\nPrivateKey = %s\nAddress = 10.8.0.2/24\n%s\n[Peer]\nPublicKey = %s\nEndpoint = vpn.example.com:51820\nAllowedIPs = %s\nPersistentKeepalive = 25\n' "$WGK" "${2:-}" "$WGP" "${1:-10.8.0.0/24}"; }
+wgconf > "$T/wg.conf"
+plan --wireguard-config "$T/wg.conf"
+has   "wireguard: announced with the interface and one peer" "vpn:           WireGuard wg0, started at boot (1 peer(s), keys not shown)" "$OUT"
+hasnt "wireguard: the private key is never printed" "${WGK:0:20}" "$OUT"
+plan --wireguard-config "$T/wg.conf" --wireguard-interface office
+has   "wireguard: a chosen interface name" "WireGuard office" "$OUT"
+wgconf "0.0.0.0/0, ::/0" > "$T/wg-full.conf"
+plan --wireguard-config "$T/wg-full.conf"
+has   "wireguard: a full tunnel is called out" "all traffic through the tunnel" "$OUT"
+printf 'WIREGUARD_CONFIG_B64=%s\n' "$(base64 -w0 "$T/wg.conf")" > "$T/wg-b64.conf"
+plan --config "$T/wg-b64.conf"
+has   "wireguard: the base64 setting works" "WireGuard wg0" "$OUT"
+printf 'WIREGUARD_CONFIG_FILE=wg.conf\n' > "$T/wg-file.conf"
+plan --config "$T/wg-file.conf"
+has   "wireguard: a file setting is read relative to the settings file" "WireGuard wg0" "$OUT"
+plan --hostname x
+has   "wireguard: none by default" "vpn:           none" "$OUT"
+plan_ok "wireguard: lines with comments, blanks, CRLF and odd case are fine" --wireguard-config <(printf '# my vpn\r\n[interface]\r\nprivatekey=%s\r\naddress = 10.8.0.2/24, fd00::2/64  # both\r\n\r\n[PEER]\r\nPUBLICKEY = %s\r\nPresharedKey = %s\r\nallowedips = 10.8.0.0/24\r\n' "$WGK" "$WGP" "$WGS")
+wgconf "10.8.0.0/24" "PostUp = touch /tmp/pwned" > "$T/wg-hook.conf"
+plan_fail "reject: a PostUp hook" "script hooks would run commands as root" --wireguard-config "$T/wg-hook.conf"
+for hook in PreUp PostDown PreDown SaveConfig; do
+    wgconf "10.8.0.0/24" "$hook = x" > "$T/wg-hook.conf"
+    plan_fail "reject: $hook" "is not supported" --wireguard-config "$T/wg-hook.conf"
+done
+wgconf "10.8.0.0/24" "Whatever = 1" > "$T/wg-odd.conf"
+plan_fail "reject: a setting the installer does not know" "is not a setting this installer accepts" --wireguard-config "$T/wg-odd.conf"
+printf '[Interface]\nPrivateKey = tooshort\nAddress = 10.8.0.2/24\n[Peer]\nPublicKey = %s\nAllowedIPs = 10.0.0.0/8\n' "$WGP" > "$T/wg-badkey.conf"
+plan_fail "reject: a private key that is not a key" "PrivateKey is not a WireGuard key" --wireguard-config "$T/wg-badkey.conf"
+printf '[Interface]\nPrivateKey = %s\nAddress = 10.8.0.2/24\n' "$WGK" > "$T/wg-nopeer.conf"
+plan_fail "reject: no peer" "at least one [Peer]" --wireguard-config "$T/wg-nopeer.conf"
+printf '[Peer]\nPublicKey = %s\nAllowedIPs = 10.0.0.0/8\n' "$WGP" > "$T/wg-noif.conf"
+plan_fail "reject: no interface section" "needs an [Interface]" --wireguard-config "$T/wg-noif.conf"
+printf '[Interface]\nPrivateKey = %s\nAddress = 10.8.0.2/24\n[Peer]\nPublicKey = %s\n' "$WGK" "$WGP" > "$T/wg-noallowed.conf"
+plan_fail "reject: a peer without AllowedIPs" "needs a PublicKey and AllowedIPs" --wireguard-config "$T/wg-noallowed.conf"
+wgconf "10.8.0.0/99x" > "$T/wg-badcidr.conf"
+plan_fail "reject: AllowedIPs that are not addresses" "AllowedIPs" --wireguard-config "$T/wg-badcidr.conf"
+printf 'WIREGUARD_CONFIG_B64=!!!notbase64\n' > "$T/wg-bad64.conf"
+plan_fail "reject: invalid base64" "not base64" --config "$T/wg-bad64.conf"
+plan_fail "reject: both a file and base64" "once" --config <(printf 'WIREGUARD_CONFIG_B64=%s\nWIREGUARD_CONFIG_FILE=%s\n' "$(base64 -w0 "$T/wg.conf")" "$T/wg.conf")
+plan_fail "reject: a missing file" "cannot read WireGuard config file" --wireguard-config /nonexistent
+plan_fail "reject: a bad interface name" "interface name must be" --wireguard-config "$T/wg.conf" --wireguard-interface 'a b'
+plan_fail "reject: an interface name that is too long" "interface name must be" --wireguard-config "$T/wg.conf" --wireguard-interface abcdefghijklmnop
 
 # ----------------------------------------------------------------- rejections
 plan_fail "reject: user without a password hash or key" "needs USER_PASSWORD_HASH" --user alice
@@ -260,6 +326,87 @@ has   "webui unit: uses the generated certificate" "--tls-cert /var/lib/rnsd-web
 has   "webui unit: starts after the radio service" "rnsd-sx1302.service" "$out"
 has   "webui unit: hardened" "ProtectSystem=strict" "$out"
 hasnt "webui unit: no password or hash in the unit" "pbkdf2" "$out"
+
+# WireGuard install step with stubs: config written root-only, unit enabled, DNS line handled, start and handshake reported
+mkdir -p "$T/wgdir" "$T/bin3"
+cat > "$T/bin3/systemctl" <<'STUB'
+#!/bin/bash
+echo "systemctl $*" >> "$STUB_LOG"
+STUB
+cat > "$T/bin3/ip" <<'STUB'
+#!/bin/bash
+[[ "$1 $2" == "link add" && "${STUB_NO_WG:-0}" -eq 1 ]] && exit 2
+exit 0
+STUB
+cat > "$T/bin3/wg" <<'STUB'
+#!/bin/bash
+[[ "${STUB_HANDSHAKE:-0}" -eq 1 ]] && printf 'PEERKEY\t1700000000\n'
+exit 0
+STUB
+cat > "$T/bin3/modprobe" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+chmod +x "$T"/bin3/*
+WG_BODY='note() { echo "NOTE: $*"; }; warn() { echo "WARN: $*"; }; install_wireguard'
+wgconf "10.8.0.0/24" "DNS = 10.8.0.1" > "$T/wg-dns.conf"
+out="$(PATH="$T/bin3:$PATH" STUB_LOG="$T/sysctl.log" STUB_HANDSHAKE=1 BOBCAT_WG_DIR="$T/wgdir" call "$WG_BODY" --wireguard-config "$T/wg-dns.conf")"
+check "wireguard install: the config is root-only" "$(stat -c %a "$T/wgdir/wg0.conf")" 600
+has   "wireguard install: the keys are in it" "PrivateKey = $WGK" "$(cat "$T/wgdir/wg0.conf")"
+has   "wireguard install: the unit is enabled" "systemctl enable wg-quick@wg0" "$(cat "$T/sysctl.log")"
+has   "wireguard install: and started" "systemctl restart wg-quick@wg0" "$(cat "$T/sysctl.log")"
+has   "wireguard install: a completed handshake is reported" "a handshake with the peer completed" "$out"
+if command -v resolvconf >/dev/null 2>&1; then ok "wireguard install: (this machine has resolvconf; the DNS-line case is skipped)"
+else
+    has   "wireguard install: without resolvconf the DNS line is left out, with a warning" "DNS line is left out" "$out"
+    hasnt "wireguard install: and not active in the file" "$(printf '\nDNS = 10.8.0.1')" "$(cat "$T/wgdir/wg0.conf")"
+fi
+out="$(PATH="$T/bin3:$PATH" STUB_LOG="$T/sysctl.log" STUB_HANDSHAKE=0 BOBCAT_WG_DIR="$T/wgdir" call "$WG_BODY" --wireguard-config "$T/wg.conf" --no-start)"
+has   "wireguard install: --no-start only installs" "installed, not started" "$out"
+out="$(PATH="$T/bin3:$PATH" STUB_LOG="$T/sysctl.log" STUB_NO_WG=1 BOBCAT_WG_DIR="$T/wgdir" call "$WG_BODY" --wireguard-config "$T/wg.conf" --no-start)"
+has   "wireguard install: a kernel without WireGuard is warned about" "cannot create WireGuard interfaces" "$out"
+out="$(PATH="$T/bin3:$PATH" STUB_LOG="$T/sysctl.log" BOBCAT_WG_DIR="$T/wgdir" call "$WG_BODY" --wireguard-config "$T/wg-full.conf" --no-start)"
+has   "wireguard install: a full tunnel is warned about" "sends all traffic through the tunnel" "$out"
+out="$(PATH="$T/bin3:$PATH" STUB_LOG="$T/sysctl.log" BOBCAT_WG_DIR="$T/wgdir" call "$WG_BODY" --hostname x)"
+check "wireguard install: nothing to do without a config" "$out" ""
+
+# certificates: a stub certbot records how it was called; the Let's Encrypt paths win once they exist
+mkdir -p "$T/le" "$T/bin2"
+cat > "$T/bin2/certbot" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$@" > "$STUB_ARGS"
+[[ "${STUB_RC:-0}" -eq 0 ]] || { echo "Some challenges have failed." >&2; exit 1; }
+d="$LE_DIR/live/${STUB_NAME}"; mkdir -p "$d"; echo cert > "$d/fullchain.pem"; echo key > "$d/privkey.pem"
+STUB
+chmod +x "$T/bin2/certbot"
+printf '#!/bin/sh\nexit 0\n' > "$T/bin2/systemctl"; chmod +x "$T/bin2/systemctl"
+ARGS_F="$T/certbot.args"
+ACME_BODY='note() { :; }; if webui_acme; then echo rc=0; else echo rc=1; fi'
+out="$(PATH="$T/bin2:$PATH" STUB_ARGS="$ARGS_F" STUB_NAME=node.example.com LE_DIR="$T/le" BOBCAT_LE_DIR="$T/le" call "$ACME_BODY" --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token" --acme-email me@example.com)"
+has   "certbot: succeeds" "rc=0" "$out"
+args="$(tr '\n' ' ' < "$ARGS_F")"
+has   "certbot: DNS challenge through the Cloudflare plugin" "--dns-cloudflare " "$args"
+has   "certbot: for the domain, non-interactive, terms accepted" "-d node.example.com" "$args"
+has   "certbot: with the contact address" "--email me@example.com" "$args"
+hasnt "certbot: the token is not on the command line" "abcdefghijklmnop" "$args"
+check "certbot: the token file is root-only" "$(stat -c %a "$T/le/cloudflare-rnsd-webui.ini")" 600
+has   "certbot: the token is in that file" "dns_cloudflare_api_token = $CFT" "$(cat "$T/le/cloudflare-rnsd-webui.ini")"
+[[ -x "$T/le/renewal-hooks/deploy/rnsd-webui" ]] && ok "certbot: a deploy hook restarts the web interface after renewal" || bad "certbot: a deploy hook restarts the web interface after renewal"
+out="$(PATH="$T/bin2:$PATH" STUB_ARGS="$ARGS_F" STUB_NAME=x LE_DIR="$T/le" BOBCAT_LE_DIR="$T/le" call "$ACME_BODY" --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token")"
+has   "certbot: without an address it registers without one" "--register-unsafely-without-email" "$(tr '\n' ' ' < "$ARGS_F")"
+rm -f "$T/le/live/node.example.com/fullchain.pem"
+out="$(PATH="$T/bin2:$PATH" STUB_ARGS="$ARGS_F" STUB_RC=1 LE_DIR="$T/le" BOBCAT_LE_DIR="$T/le" call "$ACME_BODY" --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token")"
+has   "certbot: a failure is reported with certbot's own words" "Some challenges have failed" "$out"
+has   "certbot: and returns failure" "rc=1" "$out"
+mkdir -p "$T/le/live/node.example.com"; echo c > "$T/le/live/node.example.com/fullchain.pem"; echo k > "$T/le/live/node.example.com/privkey.pem"
+out="$(BOBCAT_LE_DIR="$T/le" call 'render_webui_unit' --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token")"
+has   "unit: uses the Let's Encrypt certificate once there is one" "--tls-cert $T/le/live/node.example.com/fullchain.pem --tls-key $T/le/live/node.example.com/privkey.pem" "$out"
+has   "unit: port 443 also redirects plain http on 80" "--listen 0.0.0.0:443" "$out"
+has   "unit: the redirect flag" "--http-redirect 80" "$out"
+out="$(BOBCAT_LE_DIR="$T/le-none" call 'render_webui_unit' --webui --webui-password-hash "$WH" --webui-domain node.example.com --cloudflare-token-file "$T/cf.token")"
+has   "unit: falls back to the self-signed certificate when there is no Let's Encrypt one" "/var/lib/rnsd-webui/tls/cert.pem" "$out"
+out="$(call 'render_webui_unit' --webui --webui-password-hash "$WH" --webui-port 9443)"
+hasnt "unit: a custom port has no http redirect" "--http-redirect" "$out"
 
 
 # Clock wait: returns at once when synced, gives up (not fatal) when it never does

@@ -93,4 +93,13 @@
 # Optional: the rnsd web interface (see docs/web-interface.md). The flasher page makes the hash for you.
 #WEBUI=yes
 #WEBUI_PASSWORD_HASH=pbkdf2-sha256$200000$<salt hex>$<hash hex>
-#WEBUI_PORT=8443
+#WEBUI_PORT=443
+# A trusted certificate instead of a self-signed one: a domain in your Cloudflare account and a token with Zone, DNS, Edit.
+#WEBUI_DOMAIN=bobcat.example.com
+#CLOUDFLARE_API_TOKEN=...
+#ACME_EMAIL=you@example.com
+
+# Optional: connect to a WireGuard VPN at every boot (see docs/wireguard.md). Easiest: put the config on the boot partition
+# as bobcat-wireguard.conf. Or give it here as base64 on one line.
+#WIREGUARD_CONFIG_B64=
+#WIREGUARD_INTERFACE=wg0

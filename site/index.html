@@ -27,6 +27,8 @@ code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.88em}
 .step>h2 .n{flex:none;display:inline-flex;align-items:center;justify-content:center;width:1.7em;height:1.7em;border-radius:50%;background:var(--red);color:var(--redfg);font-size:.9rem;font-weight:700}
 .step p{margin:0 0 10px}
 .note{border-left:4px solid var(--red);padding:8px 12px;background:var(--card);border-radius:0 8px 8px 0;margin:0 0 14px;font-size:.92rem}
+label.small-file{display:inline-flex;align-items:center;min-height:44px;padding:10px 16px;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:pointer;margin:0}
+input#wgFile{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .hint{color:var(--mut);font-size:.84rem;margin:4px 0 0}
 .status{font-size:.9rem;margin:6px 0;color:var(--mut)}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}
 ol.steps{padding-left:1.3em;margin:0 0 12px}ol.steps li{margin:6px 0}
@@ -178,6 +180,16 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
   <div class="row"><label for="tcpPort">Accept TCP connections on port</label><input type="text" id="tcpPort" inputmode="numeric" placeholder="none"><div class="err" data-for="tcpPort"></div><p class="hint">Opens that port on the node.</p></div>
 </div></details>
 
+<details class="group"><summary>VPN <small>WireGuard, optional</small></summary><div class="body">
+  <p class="hint" style="margin-top:0">Paste a WireGuard config (the <code>wg-quick</code> format, the file you get from your VPN) and the node connects to it every time it boots. Everything here is optional.</p>
+  <div class="row"><label for="wgConfig">WireGuard config</label>
+    <textarea id="wgConfig" rows="9" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = vpn.example.com:51820&#10;AllowedIPs = 10.8.0.0/24&#10;PersistentKeepalive = 25" spellcheck="false" autocapitalize="none" autocorrect="off" autocomplete="off"></textarea>
+    <div class="err" data-for="wgConfig"></div>
+    <div class="btns"><label class="small-file" for="wgFile">Load from a file</label><input type="file" id="wgFile" accept=".conf,.txt,text/plain"></div>
+    <p class="hint">It holds a private key: it goes into the settings and is hidden in the preview, is stored on the node readable only by root, and is blanked on the boot partition after the install. Script hooks (<code>PostUp</code> and the like) are not accepted, because the settings are data and never run as code. With <code>AllowedIPs = 0.0.0.0/0</code> all of the node's traffic goes through the tunnel.</p></div>
+  <div class="row"><label for="wgIface">Interface name</label><input type="text" id="wgIface" placeholder="wg0" autocapitalize="none" autocorrect="off" spellcheck="false"><div class="err" data-for="wgIface"></div></div>
+</div></details>
+
 <details class="group"><summary>Web interface <small>optional, for rnsd</small></summary><div class="body">
   <div class="check"><input type="checkbox" id="webuiOn"><label for="webuiOn">Install the rnsd web interface on the node</label></div>
   <p class="hint" style="margin-top:-4px">See the node's interfaces and traffic, its paths, and announces as they arrive, from a browser on your network. It is served over HTTPS with a certificate the node makes itself, so your browser warns once. More in the <a href="docs/web-interface.html">documentation</a>.</p>
@@ -187,8 +199,18 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
       <div class="err" data-for="webuiHash"></div>
       <p class="hint">Hashed here in your browser; only the hash goes into the settings, never the password.</p></div>
     <input type="hidden" id="webuiHash">
-    <div class="row"><label for="webuiPort">Port</label><input type="text" id="webuiPort" inputmode="numeric" placeholder="8443"><div class="err" data-for="webuiPort"></div>
-      <p class="hint">Reach it at <code id="webuiUrl">https://&lt;hostname&gt;:8443/</code> once the node is up.</p></div>
+    <div class="row"><label for="webuiPort">Port</label><input type="text" id="webuiPort" inputmode="numeric" placeholder="443"><div class="err" data-for="webuiPort"></div>
+      <p class="hint">The standard HTTPS port, 443; plain <code>http://</code> on port 80 is sent on to HTTPS. Reach it at <code id="webuiUrl">https://&lt;hostname&gt;/</code> once the node is up.</p></div>
+    <details class="more"><summary>A trusted certificate (no browser warning)</summary>
+      <p class="hint" style="margin-top:8px">With a domain name and a Cloudflare API token the node gets a real Let's Encrypt certificate, validated through DNS, so nothing has to be reachable from the internet, and renews it by itself. Without these it makes its own certificate and your browser warns once. By setting a domain you accept <a href="https://letsencrypt.org/repository/" target="_blank" rel="noopener">Let's Encrypt's terms</a>.</p>
+      <div class="row"><label for="webuiDomain">Domain name</label><input type="text" id="webuiDomain" placeholder="bobcat.example.com" autocapitalize="none" autocorrect="off" spellcheck="false"><div class="err" data-for="webuiDomain"></div>
+        <p class="hint">A name in a zone on your Cloudflare account. Point an <code>A</code> record for it at the node's address on your network (the node tells you its address at the end of the install).</p></div>
+      <div class="row"><label for="webuiToken">Cloudflare API token</label><input type="password" id="webuiToken" autocomplete="off" spellcheck="false"><div class="err" data-for="webuiToken"></div>
+        <div class="check" style="margin:8px 0 0"><input type="checkbox" id="showToken"><label for="showToken">Show token</label></div>
+        <p class="hint">Create one in Cloudflare under My Profile, API Tokens, with the permission <strong>Zone, DNS, Edit</strong> for that zone only. It is kept on the node, readable only by root, and blanked on the boot partition after the install.</p></div>
+      <div class="row"><label for="webuiEmail">Contact email (optional)</label><input type="text" id="webuiEmail" inputmode="email" autocomplete="email" autocapitalize="none" placeholder="you@example.com"><div class="err" data-for="webuiEmail"></div>
+        <p class="hint">Let's Encrypt uses it for expiry notices.</p></div>
+    </details>
   </div>
 </div></details>
 
@@ -268,7 +290,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   "use strict";
   const $ = (id) => document.getElementById(id);
   const form = $("f");
-  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys", "userGithub", "webuiHash", "webuiPort",
+  const FIELDS = ["wifiSsid", "wifiPass", "ethAddress", "ethGateway", "ethDns", "hostname", "timezone", "sshKeys", "github", "rootHash", "userName", "userHash", "userKeys", "userGithub", "webuiHash", "webuiPort", "webuiDomain", "webuiToken", "webuiEmail", "wgConfig", "wgIface",
     "bandwidth", "sf", "cr", "txpower", "ifacName", "ifacPass", "mode", "tcpClients", "tcpPort", "reboot"];
 
   // option lists
@@ -296,12 +318,12 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
     $("wifiBox").hidden = !$("wifi").checked;
     $("userBox").hidden = !$("userOn").checked;
     $("webuiBox").hidden = !$("webuiOn").checked;
-    { const wp = $("webuiPort").value.trim(); $("webuiUrl").textContent = "https://<hostname>:" + (/^\d{1,5}$/.test(wp) ? wp : "8443") + "/"; }
+    { const wp = $("webuiPort").value.trim(), dom = $("webuiDomain").value.trim().toLowerCase(), port = /^\d{1,5}$/.test(wp) ? wp : "443"; $("webuiUrl").textContent = "https://" + (dom || "<hostname>") + (port === "443" ? "" : ":" + port) + "/"; }
     $("passRow").hidden = $("wifiOpen").checked;
     $("ethBox").hidden = $("ethMode").value !== "static";
     $("rebootBox").hidden = !$("recovery").checked;
     const vals = values(); if (!$("userOn").checked) { vals.userName = ""; vals.userHash = ""; vals.userKeys = ""; vals.userGithub = ""; vals.userSudo = false; }
-    if (!$("webuiOn").checked) { vals.webui = false; vals.webuiHash = ""; vals.webuiPort = ""; }
+    if (!$("webuiOn").checked) { vals.webui = false; vals.webuiHash = ""; vals.webuiPort = ""; vals.webuiDomain = ""; vals.webuiToken = ""; vals.webuiEmail = ""; }
     last = BobcatConfig.build(vals);
     document.querySelectorAll(".err").forEach((e) => { e.textContent = ""; });
     document.querySelectorAll(".invalid").forEach((e) => e.classList.remove("invalid"));
@@ -312,7 +334,7 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
       if (input) input.classList.add("invalid");
     });
     // The preview hides secrets (it may be on screen or in a screenshot); Download, Copy and the flasher use the real text.
-    $("out").textContent = last.text.replace(/^(\s*(?:WIFI_PASS|IFAC_PASSPHRASE)\s*=).+$/gm, "$1********");
+    $("out").textContent = last.text.replace(/^(\s*(?:WIFI_PASS|IFAC_PASSPHRASE|CLOUDFLARE_API_TOKEN|WIREGUARD_CONFIG_B64)\s*=).+$/gm, "$1********");
     const s = $("status");
     const blocked = last.errors.length > 0 || last.empty;
     s.className = "status " + (last.errors.length ? "bad" : last.empty ? "" : "ok");
@@ -343,6 +365,12 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
       try { const h = await WebuiHash.make(pw); if (mine === webuiToken) { $("webuiHash").value = h; update(); } }
       catch (e) { if (mine === webuiToken) { document.querySelector('.err[data-for="webuiHash"]').textContent = "this browser cannot hash passwords here (it needs https)"; } }
     }, 250);
+  });
+  $("showToken").addEventListener("change", () => { $("webuiToken").type = $("showToken").checked ? "text" : "password"; });
+  $("wgFile").addEventListener("change", async () => {
+    const f = $("wgFile").files[0]; if (!f) return;
+    if (f.size > 16384) { $("wgConfig").value = ""; document.querySelector('.err[data-for="wgConfig"]').textContent = "that file is too big for a WireGuard config"; return; }
+    $("wgConfig").value = await f.text(); update();
   });
   $("showUser").addEventListener("change", () => { $("userPlain").type = $("showUser").checked ? "text" : "password"; });
   $("userPlain").addEventListener("input", () => { const pw = $("userPlain").value; $("userHash").value = pw ? Sha512Crypt.make(pw) : ""; update(); });
@@ -382,13 +410,13 @@ SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", ATTR{idProduct}=="4d00", MODE="0666"</
   });
 
   // Remember the form in a cookie (this browser only). Passwords stay out unless asked for.
-  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash", "userHash", "webuiHash"], NEVER_IDS = ["rootPlain", "userPlain", "webuiPlain"];   // the plaintext root password is never stored; its hash is enough
+  const COOKIE = "bobcat_settings", SECRET_IDS = ["wifiPass", "ifacPass", "rootHash", "userHash", "webuiHash", "webuiToken", "wgConfig"], NEVER_IDS = ["rootPlain", "userPlain", "webuiPlain"];   // the plaintext root password is never stored; its hash is enough
   const cookieGet = () => { const m = document.cookie.split("; ").find((c) => c.startsWith(COOKIE + "=")); try { return m ? JSON.parse(decodeURIComponent(m.slice(COOKIE.length + 1))) : null; } catch (e) { return null; } };
   function cookieStatus(text, cls) { const e = $("cookieStatus"); e.textContent = text; e.className = "status " + (cls || ""); }
   $("saveCookie").addEventListener("click", () => {
     const withSecrets = $("cookieSecrets").checked, data = { secrets: withSecrets, v: {} };
     form.querySelectorAll("input[id], select[id], textarea[id]").forEach((el) => {
-      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot" || el.id === "showUser" || el.id === "showWebui") return;
+      if (["file", "button", "submit"].includes(el.type) || el.id === "showPass" || el.id === "showRoot" || el.id === "showUser" || el.id === "showWebui" || el.id === "showToken") return;
       if (NEVER_IDS.includes(el.id) || (SECRET_IDS.includes(el.id) && !withSecrets)) return;
       data.v[el.id] = el.type === "checkbox" ? el.checked : el.value;
     });

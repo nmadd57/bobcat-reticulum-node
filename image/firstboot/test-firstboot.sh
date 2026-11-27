@@ -74,9 +74,12 @@ has   "settings: root-only copy keeps the passphrase for re-runs" 'WIFI_PASS=pa 
 
 # 3. IFAC passphrase is scrubbed too; SCRUB_BOOT_CONF=no keeps everything
 reset_dirs
-printf 'IFAC_NETNAME=net\nIFAC_PASSPHRASE=secret-one\nWIFI_PASS=secret-two\n' > "$T/boot/bobcat-install.conf"
+printf 'IFAC_NETNAME=net\nIFAC_PASSPHRASE=secret-one\nWIFI_PASS=secret-two\nWEBUI_DOMAIN=node.example.com\nCLOUDFLARE_API_TOKEN=cf-secret-token-0123456789\n' > "$T/boot/bobcat-install.conf"
 run
 check "scrub: IFAC passphrase blanked" "$(grep -c '^IFAC_PASSPHRASE=$' "$T/boot/bobcat-install.conf")" 1
+check "scrub: Cloudflare token blanked" "$(grep -c '^CLOUDFLARE_API_TOKEN=$' "$T/boot/bobcat-install.conf")" 1
+check "scrub: the domain is kept" "$(grep -c '^WEBUI_DOMAIN=node.example.com$' "$T/boot/bobcat-install.conf")" 1
+has   "scrub: root-only copy keeps the token for re-runs" 'CLOUDFLARE_API_TOKEN=cf-secret-token-0123456789' "$(cat "$T/seed/effective.conf")"
 check "scrub: IFAC network name kept" "$(grep -c '^IFAC_NETNAME=net$' "$T/boot/bobcat-install.conf")" 1
 reset_dirs
 printf 'SCRUB_BOOT_CONF=no\nWIFI_PASS=keepme123\n' > "$T/boot/bobcat-install.conf"
@@ -245,6 +248,25 @@ check "no network yet: the installer still runs" "$RC" 0
 reset_dirs; mkgpio
 run BOBCAT_NET_FLAG="$T/nonet" BOBCAT_NET_CHECK=true BOBCAT_NET_GRACE=1000
 has   "network present: waits for the clock as before" "waiting for time sync" "$OUT"
+
+
+# WireGuard: a side file is passed on as WIREGUARD_CONFIG_FILE and its private key is blanked afterwards; the B64 key is scrubbed
+reset_dirs
+printf '[Interface]\nPrivateKey = SECRETKEYSECRETKEYSECRETKEYSECRETKEYSECRE=\nAddress = 10.8.0.2/24\n' > "$T/boot/bobcat-wireguard.conf"
+run
+has   "wireguard: the side file is used" "using bobcat-wireguard.conf" "$OUT"
+has   "wireguard: handed to the installer as a file setting" "WIREGUARD_CONFIG_FILE=$T/seed/files/wireguard.conf" "$(cat "$T/seed/effective.conf")"
+has   "wireguard: the root-only copy keeps the key" "SECRETKEYSECRETKEY" "$(cat "$T/seed/files/wireguard.conf")"
+hasnt "wireguard: the key is gone from the boot partition" "SECRETKEY" "$(cat "$T/boot/bobcat-wireguard.conf")"
+reset_dirs
+printf 'WIREGUARD_CONFIG_B64=QUJDREVGRw==\nHOSTNAME=x\n' > "$T/boot/bobcat-install.conf"
+run
+check "wireguard: the base64 config is blanked in the settings" "$(grep -c '^WIREGUARD_CONFIG_B64=$' "$T/boot/bobcat-install.conf")" 1
+check "wireguard: other settings kept" "$(grep -c '^HOSTNAME=x$' "$T/boot/bobcat-install.conf")" 1
+reset_dirs
+printf 'SCRUB_BOOT_CONF=no\n' > "$T/boot/bobcat-install.conf"; printf '[Interface]\nPrivateKey = KEEPME\n' > "$T/boot/bobcat-wireguard.conf"
+run
+has   "wireguard: SCRUB_BOOT_CONF=no keeps the file as it was" "KEEPME" "$(cat "$T/boot/bobcat-wireguard.conf")"
 
 printf '\n%d passed, %d failed\n' "$pass" "$failed"
 [[ "$failed" -eq 0 ]]

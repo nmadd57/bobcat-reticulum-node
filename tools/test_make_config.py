@@ -5,6 +5,7 @@ import functools
 import hashlib
 import http.server
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -161,6 +162,7 @@ def test_root_password_becomes_a_hash_the_installer_accepts(tmp_path):
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
+        "n",            # WireGuard
         "n",            # web interface
         "y", "",        # self-recovery on, default reboot minutes
     ]) + "\n"
@@ -195,6 +197,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
         "gateway",             # mode
         "y", "hub.example.org:4242", "n",  # TCP hub
         "4242",                # TCP server
+        "n",                   # WireGuard
         "n",                   # web interface
         "y", "30",             # self-recovery on, reboot after 30 minutes
     ]) + "\n"
@@ -214,7 +217,7 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
 
 def test_questionnaire_reprompts_on_a_bad_answer(tmp_path):
     answers = "\n".join(["y", "Net", "n", "n", "short", "longenough1",   # passphrase: too short, then ok
-                         "keep", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "y", ""]) + "\n"
+                         "keep", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "n", "y", ""]) + "\n"
     r = run("-o", str(tmp_path / "c.conf"), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert "8 to 63 characters" in r.stdout
@@ -282,6 +285,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
         "alice",                      # GitHub: fine
         "n", "n", "y",                # root password no, second user no, skip first-login yes
         "n", "n", "n", "", "n", "",   # radio, transport, IFAC, mode, hub, server
+        "n",                          # WireGuard
         "n",                          # web interface
         "y", "",                      # self-recovery on, default minutes
     ]) + "\n"
@@ -294,7 +298,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
 
 
 def test_questionnaire_can_turn_self_recovery_off(tmp_path):
-    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "n"]) + "\n"
+    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "n", "n"]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
@@ -328,6 +332,7 @@ def test_second_user_with_password_sudo_and_key(tmp_path):
         "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
+        "n",            # WireGuard
         "n",            # web interface
         "y", "",        # self-recovery on, default reboot minutes
     ]) + "\n"
@@ -345,7 +350,9 @@ def test_web_interface_password_becomes_a_pbkdf2_hash_the_installer_accepts(tmp_
         "y",                            # skip first-login prompt
         "n", "n", "n",                  # radio change, transport off, IFAC
         "", "n", "",                    # mode, TCP hub, server port
+        "n",                            # WireGuard
         "y", "web-pass-123", "9443",    # web interface: yes, password (stdin), port
+        "n",                            # trusted certificate
         "y", "",                        # self-recovery on, default reboot minutes
     ]) + "\n"
     out = tmp_path / "c.conf"
@@ -355,3 +362,52 @@ def test_web_interface_password_becomes_a_pbkdf2_hash_the_installer_accepts(tmp_
     assert "WEBUI=yes" in text and "WEBUI_PORT=9443" in text and "WEBUI_PASSWORD_HASH=pbkdf2-sha256$200000$" in text
     assert "web-pass-123" not in text
     assert installer_view(out, "OPT_WEBUI") == ["1"] and installer_view(out, "OPT_WEBUI_PORT") == ["9443"]
+
+
+def test_web_interface_with_a_trusted_certificate(tmp_path):
+    token = "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+    answers = "\n".join([
+        "n", "", "", "", "", "",
+        "n", "n",
+        "y",
+        "n", "n", "n",
+        "", "n", "",
+        "n",                                           # WireGuard
+        "y", "web-pass-123", "",                       # web interface: yes, password, default port
+        "y", "Bobcat04.Example.com", token, "me@example.com",   # trusted certificate: yes, domain, token (stdin), email
+        "y", "",
+    ]) + "\n"
+    out = tmp_path / "c.conf"
+    r = run("-o", str(out), stdin=answers, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr + r.stdout
+    text = out.read_text()
+    assert "WEBUI_DOMAIN=bobcat04.example.com" in text and f"CLOUDFLARE_API_TOKEN={token}" in text and "ACME_EMAIL=me@example.com" in text
+    assert "WEBUI_PORT" not in text
+    assert installer_view(out, "OPT_WEBUI_DOMAIN") == ["bobcat04.example.com"]
+    assert token not in r.stdout                       # the token is never echoed back
+
+
+def test_wireguard_config_is_read_from_a_file_and_stored_as_base64(tmp_path):
+    key = lambda: base64.b64encode(os.urandom(32)).decode()      # noqa: E731
+    conf = tmp_path / "vpn.conf"
+    conf.write_text(f"[Interface]\nPrivateKey = {key()}\nAddress = 10.8.0.2/24\n\n[Peer]\nPublicKey = {key()}\nEndpoint = vpn.example.com:51820\nAllowedIPs = 10.8.0.0/24\n")
+    hooks = tmp_path / "hooks.conf"
+    hooks.write_text(conf.read_text().replace("Address", "PostUp = id\nAddress"))
+    answers = "\n".join([
+        "n", "", "", "", "", "",
+        "n", "n",
+        "y",
+        "n", "n", "n",
+        "", "n", "",
+        "y", str(hooks), str(tmp_path / "missing.conf"), str(conf), "office",   # WireGuard: yes; a file with hooks and a missing one are refused; then the good one; name
+        "n",                                                                    # web interface
+        "y", "",
+    ]) + "\n"
+    out = tmp_path / "c.conf"
+    r = run("-o", str(out), stdin=answers, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "script hooks such as PostUp are not accepted" in r.stdout and "cannot read it" in r.stdout
+    text = out.read_text()
+    assert "WIREGUARD_CONFIG_B64=" in text and "WIREGUARD_INTERFACE=office" in text and "PrivateKey" not in text
+    assert base64.b64decode(re.search(r"WIREGUARD_CONFIG_B64=(\S+)", text).group(1)).decode().startswith("[Interface]")
+    assert installer_view(out, "OPT_WG_IFACE") == ["office"]
