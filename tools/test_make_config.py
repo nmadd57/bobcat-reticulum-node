@@ -187,9 +187,8 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
         "Europe/Berlin",       # timezone
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest me@laptop",   # pasted key
         "",                    # GitHub users
-        "n",                   # root password
+        "n",                   # root password (so the first-login prompt stays and is not asked about)
         "n",                   # second user
-        "y",                   # skip first-login prompt
         "y",                   # change radio
         "868000000", "250000", "10", "6", "13",
         "y",                   # transport off
@@ -210,14 +209,14 @@ def test_interactive_questionnaire_end_to_end(tmp_path):
                          "OPT_IFMODE", "OPT_TCP_PORT", "OPT_SKIP_WIZARD", "OPT_RESILIENCE", "OPT_NW_REBOOT")
     assert got == ["Back Yard", "pa ss word 1", "1", "static", "192.168.1.50/24", "192.168.1.1",
                    "9.9.9.9,1.1.1.1", "bobcat-yard", "Europe/Berlin", "868000000", "250000", "10", "6", "13",
-                   "0", "meshnet", "shared secret", "gateway", "4242", "1", "1", "30"]
+                   "0", "meshnet", "shared secret", "gateway", "4242", "0", "1", "30"]
     assert "TCP_CLIENT=hub.example.org:4242" in out.read_text()
     assert "ssh-ed25519" in out.read_text()
 
 
 def test_questionnaire_reprompts_on_a_bad_answer(tmp_path):
     answers = "\n".join(["y", "Net", "n", "n", "short", "longenough1",   # passphrase: too short, then ok
-                         "keep", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "n", "y", ""]) + "\n"
+                         "keep", "", "", "", "", "n", "n", "n", "n", "n", "", "n", "", "n", "n", "y", ""]) + "\n"
     r = run("-o", str(tmp_path / "c.conf"), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
     assert "8 to 63 characters" in r.stdout
@@ -283,7 +282,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
         "",                           # pasted key
         "nosuchuser",                 # GitHub: does not exist -> asked again
         "alice",                      # GitHub: fine
-        "n", "n", "y",                # root password no, second user no, skip first-login yes
+        "n", "n",                     # root password no, second user no (the first-login prompt stays)
         "n", "n", "n", "", "n", "",   # radio, transport, IFAC, mode, hub, server
         "n",                          # WireGuard
         "n",                          # web interface
@@ -298,7 +297,7 @@ def test_questionnaire_asks_for_github_users_and_retries_a_wrong_one(tmp_path, g
 
 
 def test_questionnaire_can_turn_self_recovery_off(tmp_path):
-    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "y", "n", "n", "n", "", "n", "", "n", "n", "n"]) + "\n"
+    answers = "\n".join(["n", "", "", "", "", "", "n", "n", "n", "n", "n", "", "n", "", "n", "n", "n"]) + "\n"
     out = tmp_path / "c.conf"
     r = run("-o", str(out), stdin=answers, cwd=tmp_path)
     assert r.returncode == 0, r.stderr + r.stdout
@@ -329,7 +328,6 @@ def test_second_user_with_password_sudo_and_key(tmp_path):
         "y",            # sudo
         key, "",        # a key for alice, then done
         "",             # GitHub users for alice
-        "y",            # skip first-login prompt
         "n", "n", "n",  # radio change, transport off, IFAC
         "", "n", "",    # mode, TCP hub, server port
         "n",            # WireGuard
@@ -347,7 +345,6 @@ def test_web_interface_password_becomes_a_pbkdf2_hash_the_installer_accepts(tmp_
     answers = "\n".join([
         "n", "", "", "", "", "",        # Wi-Fi no, Ethernet keep, hostname, timezone, pasted key, GitHub
         "n", "n",                       # root password, second user
-        "y",                            # skip first-login prompt
         "n", "n", "n",                  # radio change, transport off, IFAC
         "", "n", "",                    # mode, TCP hub, server port
         "n",                            # WireGuard
@@ -369,7 +366,6 @@ def test_web_interface_with_a_trusted_certificate(tmp_path):
     answers = "\n".join([
         "n", "", "", "", "", "",
         "n", "n",
-        "y",
         "n", "n", "n",
         "", "n", "",
         "n",                                           # WireGuard
@@ -396,7 +392,6 @@ def test_wireguard_config_is_read_from_a_file_and_stored_as_base64(tmp_path):
     answers = "\n".join([
         "n", "", "", "", "", "",
         "n", "n",
-        "y",
         "n", "n", "n",
         "", "n", "",
         "y", str(hooks), str(tmp_path / "missing.conf"), str(conf), "office",   # WireGuard: yes; a file with hooks and a missing one are refused; then the good one; name

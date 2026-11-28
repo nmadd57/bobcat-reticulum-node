@@ -175,6 +175,20 @@ EOF
 # Config file parsing. The file is parsed, never executed; only known keys count.
 # ---------------------------------------------------------------------------
 
+# Does root still have the community image's public password (1234)? True also when it cannot be told (not root, or no
+# shadow entry), because the answer is used to refuse to leave that password in place. A locked account (no password
+# login) is not the default. BOBCAT_SHADOW names a shadow-format file, for tests.
+root_password_is_default() {
+    local line hash
+    if [[ -n "${BOBCAT_SHADOW:-}" ]]; then line="$(grep '^root:' "$BOBCAT_SHADOW" 2>/dev/null || true)"; else line="$(getent shadow root 2>/dev/null || true)"; fi
+    [[ -n "$line" ]] || return 0
+    hash="$(cut -d: -f2 <<<"$line")"
+    [[ -n "$hash" ]] || return 0                                  # an empty hash is a password-less root
+    case "$hash" in '!'*|'*'*) return 1 ;; esac                   # locked: no password login at all
+    have perl || return 0
+    [[ "$(perl -e 'print crypt($ARGV[0], $ARGV[1])' 1234 "$hash" 2>/dev/null)" == "$hash" ]]
+}
+
 # Check a wg-quick config as data. Prints one line per problem and returns 1 if there are any. Only plain WireGuard
 # settings are accepted: PreUp/PostUp/PreDown/PostDown run shell commands as root, and a settings file is never code.
 wg_problems() {
@@ -478,6 +492,9 @@ validate_options() {
         wg_msgs="$(wg_problems "$WG_TEXT")" || fail "WireGuard config: $(head -n1 <<<"$wg_msgs")$([[ "$(wc -l <<<"$wg_msgs")" -gt 1 ]] && echo " (and $(($(wc -l <<<"$wg_msgs") - 1)) more)")"
     fi
     [[ -z "$OPT_ACME_EMAIL" || "$OPT_ACME_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fail "ACME_EMAIL is not an email address"
+    if [[ "$OPT_SKIP_WIZARD" -eq 1 && -z "$OPT_ROOT_HASH" ]] && root_password_is_default; then
+        fail "SKIP_FIRSTLOGIN_WIZARD would leave the image's public default root password (1234) in place: set ROOT_PASSWORD_HASH (SSH keys do not turn the default password off), or leave the first-login prompt on"
+    fi
     [[ -z "$OPT_WEBUI_HASH" || "$OPT_WEBUI_HASH" =~ ^(pbkdf2-sha256\$[0-9]{1,7}\$[0-9a-f]{2,}\$[0-9a-f]{2,}|scrypt\$[0-9]+\$[0-9]+\$[0-9]+\$[0-9a-f]+\$[0-9a-f]+)$ ]] ||
         fail "WEBUI_PASSWORD_HASH must be a pbkdf2-sha256\$... or scrypt\$... hash (the web page makes one), not a password"
     for value in "${OPT_TCP_CLIENTS[@]+"${OPT_TCP_CLIENTS[@]}"}"; do

@@ -158,6 +158,9 @@
       if (!probs.length) add("WIREGUARD_CONFIG_B64", toBase64(text));
       if (t("wgIface") && !ie && t("wgIface") !== "wg0") add("WIREGUARD_INTERFACE", t("wgIface"));
     }
+    if (v.skipWizard && !t("rootHash")) {
+      need("skipWizard", true, "Without a root password this would leave the image's public default password (1234) in place. Set a root password above (SSH keys do not turn it off), or untick this.");
+    }
     if (v.skipWizard) add("SKIP_FIRSTLOGIN_WIZARD", "yes");
 
     // radio: only what differs from the defaults

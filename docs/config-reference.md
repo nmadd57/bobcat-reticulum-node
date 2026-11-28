@@ -67,8 +67,10 @@ netplan file is refused (netplan would reject it or silently merge it).
 | `USER_SUDO` | `--user-sudo` | add the user to the `sudo` group (needs `USER_PASSWORD_HASH`, since sudo asks for it) |
 | `SKIP_FIRSTLOGIN_WIZARD` | `--skip-first-login-wizard` | removes Armbian's interactive first-login prompt |
 
-The community image ships with root password `1234` and the first-login prompt,
-so for an unattended node set a password hash or SSH key.
+The community image ships with root password `1234`, which is public, and the first-login prompt that makes a new owner replace it.
+**Skipping that prompt (`SKIP_FIRSTLOGIN_WIZARD`) therefore needs `ROOT_PASSWORD_HASH`**: the installer and the settings page refuse the
+combination without one, because SSH keys do not turn the default password off (it keeps working next to them). The one exception is
+a system whose root password has already been changed. Leave the prompt on and the first login makes you set a password.
 
 **Keys from GitHub.** With `SSH_GITHUB_USER=alice` the installer downloads
 `https://github.com/alice.keys` once, while installing, and adds every plain public key

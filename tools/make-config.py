@@ -477,7 +477,10 @@ def interview(a, s):
             for u in users:
                 s.set("USER_SSH_GITHUB_USER", u)
             break
-    if a.yes("Skip the interactive first-login prompt (recommended for a headless node)?", default=True):
+    if not s.get("ROOT_PASSWORD_HASH"):
+        print("  The first-login prompt stays: the image's default root password (1234) is public, and skipping the prompt")
+        print("  without setting a root password would leave it in place (SSH keys do not turn it off).")
+    elif a.yes("Skip the interactive first-login prompt (recommended for a headless node)?", default=True):
         s.set("SKIP_FIRSTLOGIN_WIZARD", "yes")
 
     print("\n-- Radio (defaults: 915 MHz, 125 kHz, SF8, CR 4/5; must match your other nodes)")

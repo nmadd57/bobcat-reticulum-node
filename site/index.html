@@ -154,7 +154,8 @@ footer{margin-top:28px;color:var(--mut);font-size:.85rem}
       <p class="hint">Fetched once, while installing.</p></div>
     <div class="check"><input type="checkbox" id="userSudo"><label for="userSudo">Allow this user to use sudo (full administrator rights)</label></div>
   </div>
-  <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node)</label></div>
+  <div class="check"><input type="checkbox" id="skipWizard" checked><label for="skipWizard">Skip the interactive first-login prompt (recommended for a headless node; needs a root password above)</label></div>
+  <div class="err" data-for="skipWizard"></div>
 </div></details>
 
 <details class="group"><summary>Radio <small>must match your other nodes</small></summary><div class="body">

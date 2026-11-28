@@ -256,6 +256,29 @@ plan_fail "reject: a missing file" "cannot read WireGuard config file" --wiregua
 plan_fail "reject: a bad interface name" "interface name must be" --wireguard-config "$T/wg.conf" --wireguard-interface 'a b'
 plan_fail "reject: an interface name that is too long" "interface name must be" --wireguard-config "$T/wg.conf" --wireguard-interface abcdefghijklmnop
 
+
+# ---------------------------------------- the image's public root password must not be left in place
+mkdir -p "$T/shadow"
+DEFHASH="$(perl -e 'print crypt("1234", q($6$testsalt$))')"; OTHERHASH="$(perl -e 'print crypt("not-1234", q($6$testsalt$))')"
+printf 'root:%s:19000:0:99999:7:::\n' "$DEFHASH" > "$T/shadow/default"
+printf 'root:%s:19000:0:99999:7:::\n' "$OTHERHASH" > "$T/shadow/changed"
+printf 'root:!:19000:0:99999:7:::\n' > "$T/shadow/locked"
+printf 'root::19000:0:99999:7:::\n' > "$T/shadow/empty"
+BOBCAT_SHADOW="$T/shadow/default" plan --skip-first-login-wizard
+if [[ $RC -ne 0 && "$OUT" == *"public default root password"* ]]; then ok "default password: skipping the first-login prompt without a root password is refused"; else bad "default password: refused" "rc=$RC $(head -2 <<<"$OUT" | tr '\n' ' ')"; fi
+BOBCAT_SHADOW="$T/shadow/empty" plan --skip-first-login-wizard
+[[ $RC -ne 0 ]] && ok "empty root password: refused too" || bad "empty root password: refused too"
+BOBCAT_SHADOW="$T/shadow/default" plan --skip-first-login-wizard --ssh-key-file "$T/keys"
+[[ $RC -ne 0 ]] && ok "SSH keys alone do not make it acceptable (the default password still works next to them)" || bad "SSH keys alone do not make it acceptable"
+BOBCAT_SHADOW="$T/shadow/default" plan --skip-first-login-wizard --root-password-hash '$6$salt$abcdefghijklmnop'
+[[ $RC -eq 0 ]] && ok "with a root password hash it is accepted" || bad "with a root password hash it is accepted" "$OUT"
+BOBCAT_SHADOW="$T/shadow/changed" plan --skip-first-login-wizard
+[[ $RC -eq 0 ]] && ok "a system whose root password was already changed is accepted" || bad "a system whose root password was already changed is accepted" "$OUT"
+BOBCAT_SHADOW="$T/shadow/locked" plan --skip-first-login-wizard
+[[ $RC -eq 0 ]] && ok "a locked root account is accepted" || bad "a locked root account is accepted" "$OUT"
+BOBCAT_SHADOW="$T/shadow/default" plan --hostname x
+[[ $RC -eq 0 ]] && ok "leaving the first-login prompt on is always fine" || bad "leaving the first-login prompt on is always fine" "$OUT"
+
 # ----------------------------------------------------------------- rejections
 plan_fail "reject: user without a password hash or key" "needs USER_PASSWORD_HASH" --user alice
 plan_fail "reject: user password as plain text" "crypt(3) hash" --user alice --user-password-hash hunter2

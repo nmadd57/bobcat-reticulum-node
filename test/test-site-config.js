@@ -17,7 +17,7 @@ const dry = (text) => {
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl you@laptop";
 const cases = {
   "wifi + keys + radio": { wifi: true, wifiSsid: "Home Net", wifiPass: "correct horse battery", hostname: "bobcat-01", timezone: "Europe/Berlin",
-    sshKeys: KEY + "\n", github: "octocat, nmadd57", skipWizard: true, frequency: "868000000", bandwidth: "250000", sf: "9", cr: "6", txpower: "13" },
+    sshKeys: KEY + "\n", github: "octocat, nmadd57", skipWizard: true, rootHash: "$6$salt$0123456789abcdefghijklmnopqrstuvwxyz", frequency: "868000000", bandwidth: "250000", sf: "9", cr: "6", txpower: "13" },
   "static ethernet, no wifi": { wifi: false, ethMode: "static", ethAddress: "192.168.1.50/24", ethGateway: "192.168.1.1", ethDns: "192.168.1.1, 9.9.9.9" },
   "hidden wifi, transport off, ifac, tcp": { wifi: true, wifiSsid: "Hidden", wifiHidden: true, wifiPass: "12345678", transportOff: true,
     ifacName: "mynet", ifacPass: "a shared secret", mode: "gateway", tcpClients: "hub.example.org:4242\n192.168.1.20:4242", tcpPort: "4242" },
@@ -29,6 +29,7 @@ const cases = {
   "web interface, own port": { wifi: false, webui: true, webuiHash: "pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", webuiPort: "9443" },
   "web interface with a trusted certificate": { wifi: false, webui: true, webuiHash: "pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", webuiDomain: "Bobcat04.Example.com", webuiToken: "abcdefghijklmnopqrstuvwxyz0123456789ABCD", webuiEmail: "me@example.com" },
   "web interface on port 443 explicitly": { wifi: false, webui: true, webuiHash: "pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", webuiPort: "443" },
+  "first-login prompt skipped with a root password": { wifi: false, skipWizard: true, rootHash: "$6$salt$hash" },
   "recovery off": { wifi: false, recovery: false },
   "recovery reboot 45": { wifi: false, recovery: true, reboot: "45" },
 };
@@ -71,6 +72,9 @@ const rejects = {
   "web interface: a domain that is not a name": { webui: true, webuiHash: "pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", webuiDomain: "bobcat", webuiToken: "abcdefghijklmnopqrstuvwxyz0123456789ABCD" },
   "web interface: something that is not a token": { webui: true, webuiHash: "pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", webuiDomain: "bobcat.example.com", webuiToken: "short" },
   "web interface: a bad contact address": { webui: true, webuiHash: "pbkdf2-sha256$200000$00112233445566778899aabbccddeeff$aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899", webuiDomain: "bobcat.example.com", webuiToken: "abcdefghijklmnopqrstuvwxyz0123456789ABCD", webuiEmail: "nope" },
+  "first-login prompt skipped without a root password": { skipWizard: true },
+  "first-login prompt skipped with SSH keys only": { skipWizard: true, sshKeys: KEY + "\n" },
+  "first-login prompt skipped with a second user only": { skipWizard: true, userName: "alice", userHash: "$6$abcdefgh$0123456789abcdefghijklmnopqrstuvwxyzABCDEFGH" },
   "short wifi pass": { wifi: true, wifiSsid: "x", wifiPass: "short" },
   "bad hostname": { hostname: "-bad-" },
   "key with options": { sshKeys: 'command="id" ' + KEY },
