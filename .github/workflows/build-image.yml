@@ -60,7 +60,7 @@ jobs:
             e2fsprogs xz-utils curl python3 python3-yaml dosfstools mtools gdisk
 
       - name: Cache the base flasher
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .cache/Bobcat29X_EMMC_Flasher.img.xz
           key: base-flasher-f797aaff9406
@@ -112,7 +112,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends e2fsprogs xz-utils curl python3
 
       - name: Cache the base image
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .cache/BobcatArmbian29x.img.xz
           key: base-image-079b540477c3
