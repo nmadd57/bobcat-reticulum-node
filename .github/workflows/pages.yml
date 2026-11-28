@@ -69,7 +69,7 @@ jobs:
             echo "release $tag has no eMMC image; skipping"; rm -rf site/flash/image
           fi
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - name: Let the artifact index settle
